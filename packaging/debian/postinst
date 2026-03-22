@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+mkdir -p /etc/igris /var/lib/igris /etc/ufw/applications.d
+chmod 0755 /usr/lib/igris/cli/igris_cli.py || true
+install -m 0644 /usr/lib/igris/packaging/ufw/igris.profile /etc/ufw/applications.d/igris || true
+systemctl daemon-reload || true
+exit 0

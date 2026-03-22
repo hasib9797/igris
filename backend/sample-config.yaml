@@ -1,0 +1,33 @@
+server:
+  host: 127.0.0.1
+  port: 2511
+  https_enabled: false
+
+auth:
+  admin_username: admin
+  password_hash: ""
+  session_secret: "dev-secret"
+  session_timeout_minutes: 30
+
+system:
+  managed_user: ubuntu
+  allow_terminal: false
+  allow_package_install: true
+  allow_user_management: true
+  allow_network_management: true
+  allow_service_management: true
+
+modules:
+  docker: false
+  alerts: true
+  tasks: true
+  files: true
+
+security:
+  trusted_subnets: []
+  require_reauth_for_dangerous_actions: true
+  audit_log_enabled: true
+
+data_dir: ./.local-igris-data
+audit_log_path: ./.local-igris-data/audit.log
+database_url: "sqlite:///./.local-igris-data/database.db"

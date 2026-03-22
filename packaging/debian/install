@@ -1,0 +1,5 @@
+backend /usr/lib/igris/backend
+frontend/dist /usr/lib/igris/frontend/dist
+cli/igris_cli.py /usr/lib/igris/cli
+scripts /usr/lib/igris/scripts
+packaging /usr/lib/igris/packaging

@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    username: str
+    must_reauth: bool = False
+
+
+class ActionRequest(BaseModel):
+    confirm_password: str | None = None
+
+
+class PackageActionRequest(BaseModel):
+    package: str
+    confirm_password: str | None = None
+
+
+class FirewallPortRequest(BaseModel):
+    port: int
+    protocol: str = "tcp"
+    confirm_password: str | None = None
+
+
+class FirewallAppRequest(BaseModel):
+    profile: str
+    confirm_password: str | None = None
+
+
+class HostnameRequest(BaseModel):
+    hostname: str
+    confirm_password: str | None = None
+
+
+class NetplanWriteRequest(BaseModel):
+    files: dict[str, str]
+    confirm_password: str | None = None
+
+
+class FileWriteRequest(BaseModel):
+    path: str
+    content: str
+    create_backup: bool = True
+    confirm_password: str | None = None
+
+
+class FileDeleteRequest(BaseModel):
+    path: str
+    confirm_password: str | None = None
+
+
+class MkdirRequest(BaseModel):
+    path: str
+    confirm_password: str | None = None
+
+
+class UserCreateRequest(BaseModel):
+    username: str
+    shell: str = "/bin/bash"
+    home: str | None = None
+    sudo: bool = False
+    password: str | None = None
+    confirm_password: str | None = None
+
+
+class UserActionRequest(BaseModel):
+    username: str
+    confirm_password: str | None = None
+
+
+class ResetPasswordRequest(BaseModel):
+    username: str
+    new_password: str
+    confirm_password: str | None = None
+
+
+class SetSudoRequest(BaseModel):
+    username: str
+    enabled: bool
+    confirm_password: str | None = None
+
+
+class ProcessKillRequest(BaseModel):
+    pid: int
+    signal: str = "TERM"
+    confirm_password: str | None = None
+
+
+class TaskCreateRequest(BaseModel):
+    name: str
+    command: str
+    schedule: str = "manual"
+
+
+class TaskRunRequest(BaseModel):
+    id: int
+    confirm_password: str | None = None
+
+
+class TaskDeleteRequest(BaseModel):
+    id: int
+    confirm_password: str | None = None
+
+
+class SettingsUpdateRequest(BaseModel):
+    server_port: int = 2511
+    bind_address: str = "0.0.0.0"
+    session_timeout_minutes: int = 30
+    allow_terminal: bool = False
+    docker_enabled: bool = True
+    require_reauth_for_dangerous_actions: bool = True
+    confirm_password: str | None = None
+
+
+class FileInfo(BaseModel):
+    path: str
+    type: str
+    size: int
+    owner: str | None = None
+    group: str | None = None
+    permissions: str
+    modified_at: datetime | None = None
+
+
+class GenericRecord(BaseModel):
+    data: dict[str, Any] = Field(default_factory=dict)

@@ -1,0 +1,12 @@
+Source: igris
+Section: admin
+Priority: optional
+Maintainer: Igris Project <admin@example.com>
+Build-Depends: debhelper-compat (= 13), dh-python, python3-all, nodejs, npm
+Standards-Version: 4.6.2
+
+Package: igris
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, python3-fastapi, python3-uvicorn, python3-sqlalchemy, python3-passlib, python3-argon2, python3-yaml, python3-psutil, python3-httpx, python3-itsdangerous, python3-multipart, ufw
+Description: Self-hosted Ubuntu server management platform
+ Igris provides a secure web dashboard and CLI for Ubuntu server operations.
