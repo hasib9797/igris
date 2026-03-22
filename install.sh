@@ -12,14 +12,43 @@ CONFIG_DIR="/etc/igris"
 DATA_DIR="/var/lib/igris"
 BIN_PATH="/usr/bin/igris"
 
-apt-get update
-apt-get install -y python3 python3-pip python3-venv nodejs npm ufw
+log() {
+  echo "[IGRIS] $1"
+}
 
+log "Installing dependencies..."
+apt-get update
+apt --fix-broken install -y || true
+apt-get install -y python3 python3-pip python3-venv ufw curl
+
+if command -v node >/dev/null 2>&1; then
+  log "Node.js already installed"
+else
+  log "Installing Node.js..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[IGRIS] ERROR: node missing after installation" >&2
+  exit 1
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+  echo "[IGRIS] ERROR: npm missing after Node.js install" >&2
+  exit 1
+fi
+
+node -v
+npm -v
+
+log "Building frontend..."
 pushd "${REPO_ROOT}/frontend" >/dev/null
 npm install
 npm run build
 popd >/dev/null
 
+log "Installing backend..."
 install -d "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
 rm -rf "${INSTALL_DIR}/backend" "${INSTALL_DIR}/cli" "${INSTALL_DIR}/scripts" "${INSTALL_DIR}/frontend" "${INSTALL_DIR}/packaging" "${INSTALL_DIR}/venv"
 
@@ -49,6 +78,7 @@ if [[ ! -f "${CONFIG_DIR}/config.yaml" ]]; then
   cp "${INSTALL_DIR}/backend/sample-config.yaml" "${CONFIG_DIR}/config.yaml"
 fi
 
+log "Done."
 echo ""
 echo "Igris has been installed to ${INSTALL_DIR}."
 echo "Next step:"
