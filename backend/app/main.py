@@ -3,7 +3,6 @@
 import asyncio
 from http.cookies import SimpleCookie
 import os
-import pty
 import subprocess
 from pathlib import Path
 
@@ -20,6 +19,13 @@ from backend.app.config import get_config
 from backend.app.db.session import Base, get_engine, get_session_factory, init_database
 from backend.app.models import AdminUser
 from backend.app.utils.audit import log_audit
+
+
+def resolve_frontend_dist() -> Path:
+    configured = os.environ.get("IGRIS_FRONTEND_DIST")
+    if configured:
+        return Path(configured).resolve()
+    return (Path(__file__).resolve().parents[2] / "frontend" / "dist").resolve()
 
 
 def create_app() -> FastAPI:
@@ -66,20 +72,26 @@ def create_app() -> FastAPI:
     async def handle_validation_error(_, exc: RequestValidationError) -> JSONResponse:
         return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
-    frontend_dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-    if frontend_dist.exists():
+    frontend_dist = resolve_frontend_dist()
+    index_file = frontend_dist / "index.html"
+    if frontend_dist.exists() and index_file.exists():
         assets_dir = frontend_dist / "assets"
         if assets_dir.exists():
             app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
 
-        @app.get("/{path:path}")
-        def serve_spa(path: str) -> FileResponse | JSONResponse:
-            if path.startswith("api/"):
+        @app.get("/{path:path}", response_model=None, include_in_schema=False)
+        def serve_spa(path: str):
+            if path == "api" or path.startswith("api/"):
                 return JSONResponse({"detail": "Not found"}, status_code=404)
-            target = frontend_dist / path
-            if target.exists() and target.is_file():
-                return FileResponse(target)
-            return FileResponse(frontend_dist / "index.html")
+            if path:
+                target = (frontend_dist / path).resolve()
+                try:
+                    target.relative_to(frontend_dist)
+                except ValueError:
+                    return JSONResponse({"detail": "Not found"}, status_code=404)
+                if target.exists() and target.is_file():
+                    return FileResponse(target)
+            return FileResponse(index_file)
 
     @app.websocket("/api/terminal/ws")
     async def terminal_socket(websocket: WebSocket) -> None:
@@ -109,6 +121,13 @@ def create_app() -> FastAPI:
             log_audit(session, actor=username, action="terminal.session_open")
 
         await websocket.accept()
+
+        try:
+            import pty
+        except ImportError:
+            await websocket.send_text("Terminal module is unavailable on this platform")
+            await websocket.close(code=4403)
+            return
 
         master, slave = pty.openpty()
         process = subprocess.Popen(

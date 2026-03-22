@@ -12,7 +12,13 @@ from backend.app.security.passwords import hash_password
 def build_app(tmp_path, monkeypatch):
     config_path = tmp_path / "config.yaml"
     data_dir = tmp_path / "data"
+    frontend_dist = tmp_path / "frontend-dist"
     data_dir.mkdir(parents=True, exist_ok=True)
+    frontend_dist.mkdir(parents=True, exist_ok=True)
+    (frontend_dist / "index.html").write_text("<!doctype html><html><body>Igris</body></html>", encoding="utf-8")
+    assets_dir = frontend_dist / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    (assets_dir / "app.js").write_text("console.log('igris');", encoding="utf-8")
     config = {
         "server": {"host": "127.0.0.1", "port": 2511, "https_enabled": False},
         "auth": {
@@ -42,6 +48,7 @@ def build_app(tmp_path, monkeypatch):
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("IGRIS_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("IGRIS_DATA_DIR", str(data_dir))
+    monkeypatch.setenv("IGRIS_FRONTEND_DIST", str(frontend_dist))
     clear_config_cache()
     if "backend.app.main" in sys.modules:
         main_module = importlib.reload(sys.modules["backend.app.main"])
@@ -71,3 +78,27 @@ def test_login_and_overview_work(tmp_path, monkeypatch):
     overview = client.get("/api/system/overview")
     assert overview.status_code == 200
     assert "hostname" in overview.json()
+
+
+def test_frontend_fallback_serves_index_and_assets(tmp_path, monkeypatch):
+    app = build_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    root = client.get("/")
+    assert root.status_code == 200
+    assert "text/html" in root.headers["content-type"]
+    assert "Igris" in root.text
+
+    asset = client.get("/assets/app.js")
+    assert asset.status_code == 200
+    assert "console.log('igris');" in asset.text
+
+    deep_route = client.get("/services/view")
+    assert deep_route.status_code == 200
+    assert "text/html" in deep_route.headers["content-type"]
+
+    unknown_api = client.get("/api/does-not-exist")
+    assert unknown_api.status_code == 404
+
+    traversal = client.get("/..%2F..%2Fsecrets.txt")
+    assert traversal.status_code == 404
