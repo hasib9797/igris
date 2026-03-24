@@ -1,7 +1,7 @@
-import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, Users, X } from "lucide-react";
+import { Activity, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
@@ -9,7 +9,7 @@ import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
 
-type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs";
+type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs" | "console";
 type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
 type PackageSearchItem = { name: string; description: string };
 type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
@@ -29,6 +29,7 @@ const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }>
   { key: "files", label: "Files", icon: FolderTree },
   { key: "processes", label: "Processes", icon: Blocks },
   { key: "logs", label: "Logs", icon: ScrollText },
+  { key: "console", label: "Console", icon: TerminalSquare },
 ];
 
 function formatPercent(value: number) {
@@ -90,7 +91,7 @@ function Modal({ open, title, subtitle, onClose, children }: { open: boolean; ti
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-5xl rounded-[2rem] border border-white/10 bg-[#0d1117] shadow-panel" onClick={(event) => event.stopPropagation()}>
+      <div className="flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-[#0d1117] shadow-panel" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <h3 className="font-display text-2xl text-white">{title}</h3>
@@ -100,7 +101,7 @@ function Modal({ open, title, subtitle, onClose, children }: { open: boolean; ti
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="px-6 py-6">{children}</div>
+        <div className="overflow-auto px-6 py-6">{children}</div>
       </div>
     </div>
   );
@@ -149,8 +150,8 @@ function OverviewPage() {
   const overview = useQuery<Overview>({
     queryKey: ["overview"],
     queryFn: () => api<Overview>("/api/system/overview"),
-    refetchInterval: 20000,
-    staleTime: 10000,
+    refetchInterval: 5000,
+    staleTime: 2000,
   });
   const data = overview.data;
 
@@ -201,7 +202,8 @@ function ServicesPage() {
   const services = useQuery<ServiceItem[]>({
     queryKey: ["services"],
     queryFn: () => api<ServiceItem[]>("/api/services"),
-    staleTime: 15000,
+    staleTime: 5000,
+    refetchInterval: 10000,
   });
   const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState("");
@@ -294,7 +296,7 @@ function ServicesPage() {
           {selected ? <ActionButton onClick={() => logs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Refresh logs</ActionButton> : null}
         </div>
         <ErrorBanner error={logs.error} />
-        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{logs.data?.logs ?? "Loading logs..."}</pre>
+        <pre className="max-h-[55vh] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{logs.data?.logs ?? "Loading logs..."}</pre>
       </Modal>
     </>
   );
@@ -310,12 +312,14 @@ function PackagesPage() {
   const installed = useQuery<InstalledPackage[]>({
     queryKey: ["packages-installed"],
     queryFn: () => api<InstalledPackage[]>("/api/packages/installed"),
-    staleTime: 20000,
+    staleTime: 10000,
+    refetchInterval: 15000,
   });
   const upgradable = useQuery<string[]>({
     queryKey: ["packages-upgradable"],
     queryFn: () => api<string[]>("/api/packages/upgradable"),
-    staleTime: 20000,
+    staleTime: 10000,
+    refetchInterval: 15000,
   });
   const searchResults = useQuery<PackageSearchItem[]>({
     queryKey: ["packages-search", searchTerm],
@@ -453,7 +457,8 @@ function ProcessesPage() {
   const processes = useQuery<ProcessItem[]>({
     queryKey: ["processes", deferredSearch],
     queryFn: () => api<ProcessItem[]>(`/api/processes${deferredSearch ? `?search=${encodeURIComponent(deferredSearch)}` : ""}`),
-    staleTime: 8000,
+    staleTime: 3000,
+    refetchInterval: 5000,
   });
 
   async function killProcess(pid: number) {
@@ -511,11 +516,13 @@ function LogsPage() {
   const systemLogs = useQuery<{ logs: string }>({
     queryKey: ["system-logs", severity, search],
     queryFn: () => api<{ logs: string }>(`/api/logs/system?lines=200${severity ? `&severity=${encodeURIComponent(severity)}` : ""}${search ? `&query=${encodeURIComponent(search)}` : ""}`),
+    refetchInterval: 5000,
   });
   const serviceLogs = useQuery<{ logs: string }>({
     queryKey: ["logs-service", serviceName],
     queryFn: () => api<{ logs: string }>(`/api/logs/service/${encodeURIComponent(serviceName)}?lines=200`),
     enabled: Boolean(serviceName),
+    refetchInterval: serviceName ? 5000 : false,
   });
 
   return (
@@ -545,7 +552,8 @@ function FirewallPage() {
   const firewall = useQuery<FirewallStatusResponse>({
     queryKey: ["firewall"],
     queryFn: () => api<FirewallStatusResponse>("/api/firewall/status"),
-    staleTime: 10000,
+    staleTime: 5000,
+    refetchInterval: 10000,
   });
   const [port, setPort] = useState("2511");
   const [notice, setNotice] = useState("");
@@ -591,7 +599,8 @@ function UsersPage() {
   const users = useQuery<UserItem[]>({
     queryKey: ["users"],
     queryFn: () => api<UserItem[]>("/api/users"),
-    staleTime: 12000,
+    staleTime: 8000,
+    refetchInterval: 15000,
   });
   const [createForm, setCreateForm] = useState({ username: "", shell: "/bin/bash", password: "", sudo: false });
   const [notice, setNotice] = useState("");
@@ -673,6 +682,8 @@ function FilesPage() {
   const files = useQuery<FileItem[]>({
     queryKey: ["files", currentPath],
     queryFn: () => api<FileItem[]>(`/api/files/list?path=${encodeURIComponent(currentPath)}`),
+    staleTime: 3000,
+    refetchInterval: 10000,
   });
   const fileContents = useQuery<FileReadResponse>({
     queryKey: ["file-read", selectedFile],
@@ -791,11 +802,69 @@ function FilesPage() {
   );
 }
 
+function ConsolePage() {
+  const [command, setCommand] = useState("");
+  const [output, setOutput] = useState("Connecting to shell...\n");
+  const [connected, setConnected] = useState(false);
+  const [socketError, setSocketError] = useState("");
+  const socketRef = useRef<WebSocket | null>(null);
+
+  useEffect(() => {
+    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const socket = new WebSocket(`${protocol}://${window.location.host}/api/terminal/ws`);
+    socketRef.current = socket;
+    socket.onopen = () => {
+      setConnected(true);
+      setSocketError("");
+      setOutput((current) => `${current}\n[connected]\n`);
+    };
+    socket.onmessage = (event) => {
+      setOutput((current) => `${current}${event.data}`);
+    };
+    socket.onerror = () => {
+      setSocketError("Console connection failed.");
+    };
+    socket.onclose = () => {
+      setConnected(false);
+    };
+
+    return () => {
+      socketRef.current = null;
+      socket.close();
+    };
+  }, []);
+
+  function sendCommand(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = command.trim();
+    if (!trimmed || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(`${trimmed}\n`);
+    setOutput((current) => `${current}\n$ ${trimmed}\n`);
+    setCommand("");
+  }
+
+  return (
+    <Panel title="Console" subtitle="Authenticated live shell access through the backend terminal module">
+      <SectionHeader title="Live Console" subtitle="Commands are executed on the server in real time and audited by the backend." />
+      {socketError ? <Notice message={socketError} tone="error" /> : null}
+      <div className="mb-4 flex items-center gap-3">
+        <Pill tone={connected ? "success" : "warning"}>{connected ? "Connected" : "Disconnected"}</Pill>
+        <div className="text-sm text-slate-400">This console depends on the terminal module being enabled in Igris settings.</div>
+      </div>
+      <pre className="min-h-[26rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/90 p-4 font-mono text-xs leading-6 text-slate-200">{output}</pre>
+      <form onSubmit={sendCommand} className="mt-4 flex flex-col gap-3 md:flex-row">
+        <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Enter a shell command" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+        <ActionButton type="submit" disabled={!connected}>Run command</ActionButton>
+      </form>
+    </Panel>
+  );
+}
+
 function Dashboard() {
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState<ModuleKey>("overview");
   const settings = useQuery<SettingsState>({ queryKey: ["settings"], queryFn: () => api<SettingsState>("/api/settings"), staleTime: 60000 });
-  const overview = useQuery<Overview>({ queryKey: ["header-overview"], queryFn: () => api<Overview>("/api/system/overview"), refetchInterval: 20000, staleTime: 10000 });
+  const overview = useQuery<Overview>({ queryKey: ["header-overview"], queryFn: () => api<Overview>("/api/system/overview"), refetchInterval: 5000, staleTime: 2000 });
   const topStatus = useMemo(() => !overview.data ? "Syncing node state" : `${overview.data.hostname} · ${overview.data.os_version}`, [overview.data]);
 
   async function logout() {
@@ -803,7 +872,24 @@ function Dashboard() {
     await queryClient.invalidateQueries({ queryKey: ["session"] });
   }
 
-  const content = current === "overview" ? <OverviewPage /> : current === "services" ? <ServicesPage /> : current === "packages" ? <PackagesPage /> : current === "firewall" ? <FirewallPage /> : current === "users" ? <UsersPage /> : current === "files" ? <FilesPage /> : current === "processes" ? <ProcessesPage /> : <LogsPage />;
+  const content =
+    current === "overview"
+      ? <OverviewPage />
+      : current === "services"
+        ? <ServicesPage />
+        : current === "packages"
+          ? <PackagesPage />
+          : current === "firewall"
+            ? <FirewallPage />
+            : current === "users"
+              ? <UsersPage />
+              : current === "files"
+                ? <FilesPage />
+                : current === "processes"
+                  ? <ProcessesPage />
+                  : current === "logs"
+                    ? <LogsPage />
+                    : <ConsolePage />;
 
   return (
     <div className="min-h-screen bg-igris-glow text-slate-100">

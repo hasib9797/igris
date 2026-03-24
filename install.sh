@@ -19,7 +19,7 @@ log() {
 log "Installing dependencies..."
 apt-get update
 apt --fix-broken install -y || true
-apt-get install -y python3 python3-pip python3-venv ufw curl
+apt-get install -y python3 python3-pip python3-venv ufw curl git
 
 if command -v node >/dev/null 2>&1; then
   log "Node.js already installed"

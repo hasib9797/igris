@@ -5,6 +5,7 @@ import argparse
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,13 @@ from scripts.setup_wizard import run_setup
 SERVICE_FILE = ROOT / "packaging" / "debian" / "igris.service"
 CONFIG_PATH = Path("/etc/igris/config.yaml")
 DATA_DIR = Path("/var/lib/igris")
+DEFAULT_UPDATE_REPO = "https://github.com/hasib9797/igris"
+DEFAULT_UPDATE_BRANCH = "main"
+
+
+def _require_root(action: str) -> None:
+    if hasattr(__import__("os"), "geteuid") and __import__("os").geteuid() != 0:
+        raise PermissionError(f"{action} must be run as root")
 
 
 def status() -> int:
@@ -46,6 +54,7 @@ def reset_admin() -> int:
 
     import getpass
 
+    _require_root("igris reset-admin")
     config = load_config(CONFIG_PATH)
     new_hash = hash_password(getpass.getpass("New admin password: "))
     config.auth.password_hash = new_hash
@@ -88,16 +97,43 @@ def restore(source: str) -> int:
     return 0
 
 
-def update() -> int:
+def _ensure_git() -> None:
+    if shutil.which("git"):
+        return
     subprocess.run(["apt-get", "update"], check=True)
-    subprocess.run(["systemctl", "restart", "igris.service"], check=False)
-    print("Package index refreshed and service restart requested.")
-    return 0
+    subprocess.run(["apt-get", "install", "-y", "git"], check=True)
+
+
+def update() -> int:
+    _require_root("igris --update")
+    _ensure_git()
+
+    repo_url = DEFAULT_UPDATE_REPO
+    branch = DEFAULT_UPDATE_BRANCH
+    temp_root = Path(tempfile.mkdtemp(prefix="igris-update-"))
+    checkout = temp_root / "repo"
+
+    try:
+      print(f"Fetching Igris update from {repo_url} ({branch})...")
+      subprocess.run(["git", "clone", "--depth", "1", "--branch", branch, repo_url, str(checkout)], check=True)
+      install_script = checkout / "install.sh"
+      if not install_script.exists():
+          raise FileNotFoundError(f"install.sh not found in update repo: {install_script}")
+
+      subprocess.run(["bash", str(install_script)], check=True, cwd=checkout)
+      subprocess.run(["systemctl", "daemon-reload"], check=True)
+      subprocess.run(["systemctl", "restart", "igris.service"], check=True)
+      subprocess.run(["systemctl", "is-active", "--quiet", "igris.service"], check=True)
+      print("Igris updated successfully and service restarted.")
+      return 0
+    finally:
+        shutil.rmtree(temp_root, ignore_errors=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="igris")
     parser.add_argument("--setup", action="store_true")
+    parser.add_argument("--update", action="store_true")
     parser.add_argument("command", nargs="?")
     parser.add_argument("subcommand", nargs="?")
     parser.add_argument("value", nargs="?")
@@ -109,6 +145,8 @@ def main() -> int:
     if args.setup:
         run_setup()
         return 0
+    if args.update:
+        return update()
     if args.command == "server":
         run_server()
         return 0
