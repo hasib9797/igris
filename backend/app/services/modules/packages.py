@@ -47,3 +47,28 @@ def list_upgradable() -> list[str]:
     if result.returncode != 0:
         return []
     return [line.strip() for line in result.stdout.splitlines()[1:] if line.strip()]
+
+
+def list_installed() -> list[dict]:
+    result = run_command(
+        ["dpkg-query", "-W", "-f=${binary:Package}\t${Version}\n"],
+        timeout=60,
+    ).ensure_success("Unable to list installed packages")
+    upgradable_names = {line.split("/", 1)[0] for line in list_upgradable()}
+    packages = []
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        name, _, version = line.partition("\t")
+        if not name:
+            continue
+        packages.append(
+            {
+                "name": name.strip(),
+                "version": version.strip(),
+                "installed": True,
+                "upgradable": name.strip() in upgradable_names,
+            }
+        )
+    packages.sort(key=lambda item: item["name"])
+    return packages

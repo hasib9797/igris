@@ -177,6 +177,11 @@ def package_upgradable(_: AdminUser = Depends(get_current_user)) -> list[str]:
     return package_service.list_upgradable()
 
 
+@router.get("/packages/installed")
+def package_installed(_: AdminUser = Depends(get_current_user)) -> list[dict]:
+    return package_service.list_installed()
+
+
 @router.get("/network/interfaces")
 def network_interfaces(_: AdminUser = Depends(get_current_user)) -> dict:
     return network_service.get_interfaces()

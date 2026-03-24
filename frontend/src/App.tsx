@@ -1,17 +1,7 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { ButtonHTMLAttributes, ReactElement } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Activity,
-  Blocks,
-  FolderTree,
-  Package2,
-  RefreshCw,
-  ScrollText,
-  Server,
-  Shield,
-  Users,
-} from "lucide-react";
+import { Activity, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, Users, X } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
@@ -19,75 +9,16 @@ import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
 
-type ModuleKey =
-  | "overview"
-  | "services"
-  | "packages"
-  | "firewall"
-  | "users"
-  | "files"
-  | "processes"
-  | "logs";
-
-type ServiceItem = {
-  name: string;
-  load: string;
-  active: string;
-  sub: string;
-  description: string;
-};
-
-type PackageItem = {
-  name: string;
-  description: string;
-};
-
-type UserItem = {
-  username: string;
-  uid: number;
-  gid: number;
-  home: string;
-  shell: string;
-};
-
-type ProcessItem = {
-  pid: number;
-  name: string;
-  username: string;
-  cpu_percent: number;
-  memory_percent: number;
-  status: string;
-};
-
-type FileItem = {
-  path: string;
-  type: "file" | "directory";
-  size: number;
-  owner: string | null;
-  group: string | null;
-  permissions: string;
-  modified_at: string | null;
-};
-
-type FileReadResponse = {
-  path: string;
-  content: string;
-  size: number;
-  permissions: string;
-};
-
-type FirewallStatusResponse = {
-  status: string;
-};
-
-type SettingsState = {
-  server_port: number;
-  bind_address: string;
-  session_timeout_minutes: number;
-  allow_terminal: boolean;
-  docker_enabled: boolean;
-  require_reauth_for_dangerous_actions: boolean;
-};
+type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs";
+type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
+type PackageSearchItem = { name: string; description: string };
+type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
+type UserItem = { username: string; uid: number; gid: number; home: string; shell: string };
+type ProcessItem = { pid: number; name: string; username: string; cpu_percent: number; memory_percent: number; status: string };
+type FileItem = { path: string; type: "file" | "directory"; size: number; owner: string | null; group: string | null; permissions: string; modified_at: string | null };
+type FileReadResponse = { path: string; content: string; size: number; permissions: string };
+type FirewallStatusResponse = { status: string };
+type SettingsState = { server_port: number; bind_address: string; session_timeout_minutes: number; allow_terminal: boolean; docker_enabled: boolean; require_reauth_for_dangerous_actions: boolean };
 
 const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }> = [
   { key: "overview", label: "Overview", icon: Activity },
@@ -110,34 +41,86 @@ function formatUptime(seconds: number) {
   return days > 0 ? `${days}d ${hours % 24}h` : `${hours}h`;
 }
 
-function JsonBlock({ value }: { value: unknown }) {
-  return (
-    <pre className="max-h-[24rem] overflow-auto rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-xs text-slate-300">
-      {JSON.stringify(value, null, 2)}
-    </pre>
-  );
+function formatBytes(value: number) {
+  if (!value) return "0 B";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+  const amount = value / 1024 ** index;
+  return `${amount.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
 function ErrorBanner({ error }: { error: unknown }) {
   if (!error) return null;
   const message = error instanceof Error ? error.message : "Request failed";
-  return <div className="rounded-2xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{message}</div>;
+  return <div className="rounded-2xl border border-rose-500/35 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">{message}</div>;
 }
 
-function NoticeBanner({ message, tone = "success" }: { message: string; tone?: "success" | "error" }) {
-  const classes =
+function Notice({ message, tone = "success" }: { message: string; tone?: "success" | "error" | "info" }) {
+  const style =
     tone === "error"
-      ? "border-rose-500/40 bg-rose-500/10 text-rose-200"
-      : "border-emerald-400/30 bg-emerald-500/10 text-emerald-100";
-  return <div className={`rounded-2xl border px-4 py-3 text-sm ${classes}`}>{message}</div>;
+      ? "border-rose-500/35 bg-rose-500/10 text-rose-100"
+      : tone === "info"
+        ? "border-sky-400/30 bg-sky-500/10 text-sky-100"
+        : "border-emerald-400/30 bg-emerald-500/10 text-emerald-100";
+  return <div className={`rounded-2xl border px-4 py-3 text-sm ${style}`}>{message}</div>;
 }
 
-function ActionButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+function ActionButton({ className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       {...props}
-      className={`rounded-xl px-3 py-2 text-sm font-medium transition disabled:opacity-50 ${props.className ?? "bg-ember-500 text-white hover:bg-ember-400"}`}
+      className={`inline-flex items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${className || "bg-ember-500 text-white hover:bg-ember-400"}`}
     />
+  );
+}
+
+function Pill({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "success" | "warning" | "danger" }) {
+  const style =
+    tone === "success"
+      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+      : tone === "warning"
+        ? "border-amber-400/20 bg-amber-500/10 text-amber-100"
+        : tone === "danger"
+          ? "border-rose-500/20 bg-rose-500/10 text-rose-100"
+          : "border-white/10 bg-white/5 text-slate-200";
+  return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${style}`}>{children}</span>;
+}
+
+function Modal({ open, title, subtitle, onClose, children }: { open: boolean; title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-5xl rounded-[2rem] border border-white/10 bg-[#0d1117] shadow-panel" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <h3 className="font-display text-2xl text-white">{title}</h3>
+            {subtitle ? <p className="mt-2 text-sm text-slate-400">{subtitle}</p> : null}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-2xl border border-white/10 bg-white/5 p-2 text-slate-300 transition hover:bg-white/10 hover:text-white">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="px-6 py-6">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ checked, onChange, label, description }: { checked: boolean; onChange: (checked: boolean) => void; label: string; description?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left transition ${checked ? "border-ember-500/45 bg-ember-500/12" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
+    >
+      <span>
+        <span className="block text-sm font-medium text-white">{label}</span>
+        {description ? <span className="mt-1 block text-xs text-slate-400">{description}</span> : null}
+      </span>
+      <span className={`relative h-7 w-12 rounded-full transition ${checked ? "bg-ember-500" : "bg-slate-700"}`}>
+        <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${checked ? "left-6" : "left-1"}`} />
+      </span>
+    </button>
   );
 }
 
@@ -147,13 +130,13 @@ function askForConfirmation() {
 
 function SectionHeader({ title, subtitle, refresh }: { title: string; subtitle: string; refresh?: () => void }) {
   return (
-    <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
         <h2 className="font-display text-2xl text-white">{title}</h2>
         <p className="mt-2 text-sm text-slate-400">{subtitle}</p>
       </div>
       {refresh ? (
-        <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10">
+        <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white transition hover:bg-white/10">
           <RefreshCw className="h-4 w-4" />
           Refresh
         </button>
@@ -167,31 +150,38 @@ function OverviewPage() {
     queryKey: ["overview"],
     queryFn: () => api<Overview>("/api/system/overview"),
     refetchInterval: 20000,
+    staleTime: 10000,
   });
   const data = overview.data;
 
   return (
     <div className="space-y-6">
-      <Panel title="Overview" subtitle="Live server inventory from the running backend">
-        <SectionHeader title="System State" subtitle="Real-time metrics and host identity" refresh={() => overview.refetch()} />
+      <Panel title="Overview" subtitle="Live host state from the running Ubuntu node">
+        <SectionHeader title="System State" subtitle="Real-time health and identity" refresh={() => overview.refetch()} />
         <ErrorBanner error={overview.error} />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="CPU Load" value={data ? formatPercent(data.cpu_usage_percent) : "--"} />
-          <MetricCard label="Memory" value={data ? formatPercent(data.ram_usage_percent) : "--"} accent="from-amber-500/30 to-transparent" />
-          <MetricCard label="Disk" value={data ? formatPercent(data.disk_usage_percent) : "--"} accent="from-rose-500/30 to-transparent" />
-          <MetricCard label="Uptime" value={data ? formatUptime(data.uptime_seconds) : "--"} accent="from-red-500/30 to-transparent" />
+          <MetricCard label="Memory" value={data ? formatPercent(data.ram_usage_percent) : "--"} accent="from-amber-500/25 to-transparent" />
+          <MetricCard label="Disk" value={data ? formatPercent(data.disk_usage_percent) : "--"} accent="from-rose-500/25 to-transparent" />
+          <MetricCard label="Uptime" value={data ? formatUptime(data.uptime_seconds) : "--"} accent="from-red-500/25 to-transparent" />
         </div>
         {data ? (
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+          <div className="mt-6 grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Hostname: {data.hostname}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Kernel: {data.kernel_version}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Local IP: {data.local_ip ?? "Unavailable"}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Public IP: {data.public_ip ?? "Unavailable"}</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 sm:col-span-2">OS: {data.os_version}</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200"><div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-500">Hostname</div>{data.hostname}</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200"><div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-500">Kernel</div>{data.kernel_version}</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200"><div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-500">Local IP</div>{data.local_ip ?? "Unavailable"}</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200"><div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-500">Public IP</div>{data.public_ip ?? "Unavailable"}</div>
+              <div className="rounded-3xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200 sm:col-span-2"><div className="mb-1 text-xs uppercase tracking-[0.2em] text-slate-500">Operating System</div>{data.os_version}</div>
             </div>
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-              <p className="mb-3 text-sm uppercase tracking-[0.2em] text-slate-400">Pending Updates</p>
+            <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">Pending Updates</p>
+                  <p className="mt-2 text-lg text-white">{data.pending_updates.length ? `${data.pending_updates.length} packages need attention` : "System is current"}</p>
+                </div>
+                <Pill tone={data.pending_updates.length ? "warning" : "success"}>{data.pending_updates.length ? "Updates available" : "Up to date"}</Pill>
+              </div>
               <div className="space-y-2 text-sm text-slate-300">
                 {data.pending_updates.length ? data.pending_updates.slice(0, 10).map((item) => <div key={item}>{item}</div>) : <div>No upgradable packages reported.</div>}
               </div>
@@ -200,12 +190,8 @@ function OverviewPage() {
         ) : null}
       </Panel>
       <div className="grid gap-6 xl:grid-cols-2">
-        <Panel title="Failed Services" subtitle="Current systemd failures">
-          <JsonBlock value={data?.failed_services ?? []} />
-        </Panel>
-        <Panel title="Top Processes" subtitle="Highest CPU consumers">
-          <JsonBlock value={data?.top_processes ?? []} />
-        </Panel>
+        <Panel title="Failed Services" subtitle="Current systemd failures"><pre className="max-h-[20rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs text-slate-300">{JSON.stringify(data?.failed_services ?? [], null, 2)}</pre></Panel>
+        <Panel title="Top Processes" subtitle="Highest CPU consumers"><pre className="max-h-[20rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs text-slate-300">{JSON.stringify(data?.top_processes ?? [], null, 2)}</pre></Panel>
       </div>
     </div>
   );
@@ -215,71 +201,83 @@ function ServicesPage() {
   const services = useQuery<ServiceItem[]>({
     queryKey: ["services"],
     queryFn: () => api<ServiceItem[]>("/api/services"),
+    staleTime: 15000,
   });
-  const [selected, setSelected] = useState("");
   const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const [selected, setSelected] = useState<ServiceItem | null>(null);
+  const filtered = useMemo(() => {
+    const term = filter.trim().toLowerCase();
+    if (!term) return services.data ?? [];
+    return (services.data ?? []).filter((item) => item.name.toLowerCase().includes(term) || item.description.toLowerCase().includes(term));
+  }, [filter, services.data]);
   const logs = useQuery<{ logs: string }>({
-    queryKey: ["service-logs", selected],
-    queryFn: () => api<{ logs: string }>(`/api/services/${encodeURIComponent(selected)}/logs`),
-    enabled: Boolean(selected),
+    queryKey: ["service-logs", selected?.name],
+    queryFn: () => api<{ logs: string }>(`/api/services/${encodeURIComponent(selected?.name ?? "")}/logs`),
+    enabled: Boolean(selected?.name),
   });
 
   async function runAction(name: string, action: string) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
       await api(`/api/services/${encodeURIComponent(name)}/${action}`, {
         method: "POST",
-        body: JSON.stringify({ confirm_password }),
+        body: JSON.stringify({ confirm_password: confirmPassword }),
       });
       setNotice(`Service ${action} completed for ${name}.`);
       await services.refetch();
-      if (selected === name) await logs.refetch();
+      if (selected?.name === name) await logs.refetch();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Service action failed");
     }
   }
 
-  const filtered = (services.data ?? []).filter((item) => item.name.toLowerCase().includes(filter.toLowerCase()));
-
   return (
-    <Panel title="Services" subtitle="Manage real systemd units">
-      <SectionHeader title="Service Control" subtitle="Start, stop, restart, enable, and inspect services" refresh={() => services.refetch()} />
-      <ErrorBanner error={services.error} />
-      {actionError ? <NoticeBanner message={actionError} tone="error" /> : null}
-      {notice ? <NoticeBanner message={notice} /> : null}
-      <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter services" className="mb-4 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-      <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-        <div className="overflow-hidden rounded-3xl border border-white/10">
-          <div className="max-h-[32rem] overflow-auto">
+    <>
+      <Panel title="Services" subtitle="Control real systemd units without leaving the dashboard">
+        <SectionHeader title="Service Control" subtitle="Inspect service state and open logs in a dedicated panel" refresh={() => services.refetch()} />
+        <ErrorBanner error={services.error} />
+        {actionError ? <Notice message={actionError} tone="error" /> : null}
+        {notice ? <Notice message={notice} /> : null}
+        <div className="mb-5 grid gap-3 lg:grid-cols-[1fr,auto]">
+          <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter services by name or description" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-ember-500/60" />
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{filtered.length} services</div>
+        </div>
+        <div className="overflow-hidden rounded-[1.75rem] border border-white/10">
+          <div className="max-h-[40rem] overflow-auto">
             <table className="min-w-full text-left text-sm text-slate-200">
-              <thead className="bg-white/5 text-slate-400">
+              <thead className="sticky top-0 bg-[#11161d] text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Service</th>
+                  <th className="px-4 py-3">Load</th>
                   <th className="px-4 py-3">State</th>
-                  <th className="px-4 py-3">Actions</th>
+                  <th className="px-4 py-3">Controls</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((service) => (
                   <tr key={service.name} className="border-t border-white/5">
-                    <td className="px-4 py-3">
-                      <button type="button" onClick={() => setSelected(service.name)} className="text-left text-white hover:text-ember-300">
-                        <div>{service.name}</div>
-                        <div className="text-xs text-slate-400">{service.description}</div>
-                      </button>
+                    <td className="px-4 py-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-white">{service.name}</div>
+                          <div className="mt-1 text-xs text-slate-400">{service.description || "No description"}</div>
+                        </div>
+                        <button type="button" onClick={() => setSelected(service)} className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white transition hover:bg-white/10">
+                          View logs
+                        </button>
+                      </div>
                     </td>
-                    <td className="px-4 py-3">{service.active}/{service.sub}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4">{service.load}</td>
+                    <td className="px-4 py-4"><Pill tone={service.active === "active" ? "success" : service.active === "failed" ? "danger" : "warning"}>{service.active}/{service.sub}</Pill></td>
+                    <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
                         {["start", "stop", "restart", "enable", "disable"].map((action) => (
-                          <ActionButton key={action} onClick={() => runAction(service.name, action)} className="bg-white/5 text-white hover:bg-white/10">
-                            {action}
-                          </ActionButton>
+                          <ActionButton key={action} onClick={() => runAction(service.name, action)} className="bg-white/5 text-white hover:bg-white/10">{action}</ActionButton>
                         ))}
                       </div>
                     </td>
@@ -289,140 +287,182 @@ function ServicesPage() {
             </table>
           </div>
         </div>
-        <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-          <p className="mb-2 text-sm uppercase tracking-[0.2em] text-slate-400">Selected Logs</p>
-          <p className="mb-3 text-white">{selected || "Choose a service"}</p>
-          <ErrorBanner error={logs.error} />
-          <pre className="max-h-[26rem] overflow-auto rounded-2xl bg-slate-950/80 p-4 text-xs text-slate-300">{logs.data?.logs ?? "No logs loaded."}</pre>
+      </Panel>
+      <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.name ?? "Service logs"} subtitle={selected ? `${selected.active}/${selected.sub} · ${selected.description || "systemd unit"}` : undefined}>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <Pill tone={selected?.active === "active" ? "success" : selected?.active === "failed" ? "danger" : "warning"}>{selected?.active}/{selected?.sub}</Pill>
+          {selected ? <ActionButton onClick={() => logs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Refresh logs</ActionButton> : null}
         </div>
-      </div>
-    </Panel>
+        <ErrorBanner error={logs.error} />
+        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{logs.data?.logs ?? "Loading logs..."}</pre>
+      </Modal>
+    </>
   );
 }
 
 function PackagesPage() {
+  const [query, setQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [notice, setNotice] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [busy, setBusy] = useState("");
+  const [mode, setMode] = useState<"installed" | "search">("installed");
+  const installed = useQuery<InstalledPackage[]>({
+    queryKey: ["packages-installed"],
+    queryFn: () => api<InstalledPackage[]>("/api/packages/installed"),
+    staleTime: 20000,
+  });
   const upgradable = useQuery<string[]>({
     queryKey: ["packages-upgradable"],
     queryFn: () => api<string[]>("/api/packages/upgradable"),
+    staleTime: 20000,
   });
-  const [query, setQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<PackageItem[]>([]);
-  const [searchError, setSearchError] = useState("");
-  const [busy, setBusy] = useState("");
-  const [notice, setNotice] = useState("");
-
-  async function search(event: FormEvent) {
-    event.preventDefault();
-    if (query.trim().length < 2) return;
-    try {
-      setSearchError("");
-      setSearchResults(await api<PackageItem[]>(`/api/packages/search?query=${encodeURIComponent(query.trim())}`));
-    } catch (error) {
-      setSearchError(error instanceof Error ? error.message : "Search failed");
-    }
-  }
+  const searchResults = useQuery<PackageSearchItem[]>({
+    queryKey: ["packages-search", searchTerm],
+    queryFn: () => api<PackageSearchItem[]>(`/api/packages/search?query=${encodeURIComponent(searchTerm)}`),
+    enabled: searchTerm.trim().length >= 2,
+    staleTime: 20000,
+  });
+  const installedMap = useMemo(() => new Map((installed.data ?? []).map((item) => [item.name, item])), [installed.data]);
 
   async function runAction(action: "install" | "remove" | "reinstall", pkg: string) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setBusy(`${action}:${pkg}`);
+    setActionError("");
     setNotice("");
     try {
-      await api(`/api/packages/${action}`, {
-        method: "POST",
-        body: JSON.stringify({ package: pkg, confirm_password }),
-      });
-      setNotice(`Package ${action} completed for ${pkg}.`);
-      await upgradable.refetch();
+      await api(`/api/packages/${action}`, { method: "POST", body: JSON.stringify({ package: pkg, confirm_password: confirmPassword }) });
+      setNotice(`Package ${action === "install" ? "install/update" : action} completed for ${pkg}.`);
+      await Promise.all([installed.refetch(), upgradable.refetch(), searchResults.refetch()]);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Package action failed");
     } finally {
       setBusy("");
     }
   }
 
   async function updateIndex() {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setBusy("update-index");
+    setActionError("");
     setNotice("");
     try {
-      await api("/api/packages/update-index", {
-        method: "POST",
-        body: JSON.stringify({ confirm_password }),
-      });
+      await api("/api/packages/update-index", { method: "POST", body: JSON.stringify({ confirm_password: confirmPassword }) });
       setNotice("Package index updated successfully.");
-      await upgradable.refetch();
+      await Promise.all([installed.refetch(), upgradable.refetch(), searchResults.refetch()]);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Package index update failed");
     } finally {
       setBusy("");
     }
   }
 
+  function submitSearch(event: FormEvent) {
+    event.preventDefault();
+    setSearchTerm(query.trim());
+    setMode("search");
+  }
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.1fr,0.9fr]">
-      <Panel title="Packages" subtitle="Search and manage APT packages">
-        <SectionHeader title="Package Search" subtitle="Real apt-cache and apt-get operations" refresh={() => upgradable.refetch()} />
-        <form onSubmit={search} className="mb-4 flex gap-3">
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search packages" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+    <Panel title="Packages" subtitle="Installed package visibility, updates, and APT operations">
+      <SectionHeader title="Package Management" subtitle="Search, audit, and operate on the real package state" refresh={() => Promise.all([installed.refetch(), upgradable.refetch()])} />
+      {actionError ? <Notice message={actionError} tone="error" /> : null}
+      {notice ? <Notice message={notice} /> : null}
+      <div className="mb-5 grid gap-3 xl:grid-cols-[1fr,auto]">
+        <form onSubmit={submitSearch} className="flex flex-col gap-3 md:flex-row">
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search for a package by name" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-ember-500/60" />
           <ActionButton type="submit">Search</ActionButton>
-          <ActionButton type="button" onClick={updateIndex} className="bg-white/5 text-white hover:bg-white/10">
-            {busy === "update-index" ? "Updating..." : "Update Index"}
-          </ActionButton>
         </form>
-        {searchError ? <ErrorBanner error={new Error(searchError)} /> : null}
-        {notice ? <NoticeBanner message={notice} /> : null}
+        <ActionButton type="button" onClick={updateIndex} className="bg-white/5 text-white hover:bg-white/10">{busy === "update-index" ? "Updating..." : "Refresh package index"}</ActionButton>
+      </div>
+      <div className="mb-5 flex flex-wrap gap-3">
+        <button type="button" onClick={() => setMode("installed")} className={`rounded-2xl px-4 py-2.5 text-sm transition ${mode === "installed" ? "bg-ember-500 text-white" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>Installed packages</button>
+        <button type="button" onClick={() => setMode("search")} className={`rounded-2xl px-4 py-2.5 text-sm transition ${mode === "search" ? "bg-ember-500 text-white" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>Search results</button>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-slate-300">{(upgradable.data ?? []).length} upgradable packages</div>
+      </div>
+      {mode === "installed" ? (
+        <div className="overflow-hidden rounded-[1.75rem] border border-white/10">
+          <ErrorBanner error={installed.error} />
+          <div className="max-h-[38rem] overflow-auto">
+            <table className="min-w-full text-left text-sm text-slate-200">
+              <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+                <tr><th className="px-4 py-3">Package</th><th className="px-4 py-3">Version</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Actions</th></tr>
+              </thead>
+              <tbody>
+                {(installed.data ?? []).map((item) => (
+                  <tr key={item.name} className="border-t border-white/5">
+                    <td className="px-4 py-4 font-medium text-white">{item.name}</td>
+                    <td className="px-4 py-4 text-slate-300">{item.version}</td>
+                    <td className="px-4 py-4">{item.upgradable ? <Pill tone="warning">Update available</Pill> : <Pill tone="success">Installed</Pill>}</td>
+                    <td className="px-4 py-4">
+                      <div className="flex flex-wrap gap-2">
+                        {item.upgradable ? <ActionButton onClick={() => runAction("install", item.name)}>{busy === `install:${item.name}` ? "Updating..." : "Update"}</ActionButton> : <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">Current</div>}
+                        <ActionButton onClick={() => runAction("reinstall", item.name)} className="bg-white/5 text-white hover:bg-white/10">{busy === `reinstall:${item.name}` ? "..." : "Reinstall"}</ActionButton>
+                        <ActionButton onClick={() => runAction("remove", item.name)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">{busy === `remove:${item.name}` ? "..." : "Remove"}</ActionButton>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
         <div className="space-y-3">
-          {searchResults.map((item) => (
-            <div key={item.name} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-white">{item.name}</div>
-                  <div className="mt-1 text-sm text-slate-400">{item.description}</div>
-                </div>
-                <div className="flex gap-2">
-                  {["install", "remove", "reinstall"].map((action) => (
-                    <ActionButton key={action} onClick={() => runAction(action as "install" | "remove" | "reinstall", item.name)} className="bg-white/5 text-white hover:bg-white/10">
-                      {busy === `${action}:${item.name}` ? "..." : action}
-                    </ActionButton>
-                  ))}
+          <ErrorBanner error={searchResults.error} />
+          {!searchTerm ? <Notice message="Search for a package to inspect install status and available actions." tone="info" /> : null}
+          {(searchResults.data ?? []).map((item) => {
+            const installedInfo = installedMap.get(item.name);
+            const isInstalled = Boolean(installedInfo?.installed);
+            const needsUpdate = Boolean(installedInfo?.upgradable);
+            return (
+              <div key={item.name} className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <h3 className="text-lg font-semibold text-white">{item.name}</h3>
+                      {isInstalled ? needsUpdate ? <Pill tone="warning">Installed · update available</Pill> : <Pill tone="success">Installed</Pill> : <Pill>Not installed</Pill>}
+                    </div>
+                    <p className="text-sm text-slate-400">{item.description}</p>
+                    {installedInfo ? <p className="text-xs text-slate-500">Installed version: {installedInfo.version}</p> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {!isInstalled ? <ActionButton onClick={() => runAction("install", item.name)}>{busy === `install:${item.name}` ? "Installing..." : "Install"}</ActionButton> : needsUpdate ? <ActionButton onClick={() => runAction("install", item.name)}>{busy === `install:${item.name}` ? "Updating..." : "Update"}</ActionButton> : <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-100">Already current</div>}
+                    {isInstalled ? <>
+                      <ActionButton onClick={() => runAction("reinstall", item.name)} className="bg-white/5 text-white hover:bg-white/10">{busy === `reinstall:${item.name}` ? "..." : "Reinstall"}</ActionButton>
+                      <ActionButton onClick={() => runAction("remove", item.name)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">{busy === `remove:${item.name}` ? "..." : "Remove"}</ActionButton>
+                    </> : null}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
-      </Panel>
-      <Panel title="Upgradable" subtitle="Current apt-reported updates">
-        <ErrorBanner error={upgradable.error} />
-        <div className="space-y-2 text-sm text-slate-300">
-          {(upgradable.data ?? []).map((item) => (
-            <div key={item} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-              {item}
-            </div>
-          ))}
-          {!upgradable.data?.length ? <div>No updates reported.</div> : null}
-        </div>
-      </Panel>
-    </div>
+      )}
+    </Panel>
   );
 }
 
 function ProcessesPage() {
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const deferredSearch = useDeferredValue(searchInput.trim());
   const processes = useQuery<ProcessItem[]>({
-    queryKey: ["processes", search],
-    queryFn: () => api<ProcessItem[]>(`/api/processes${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+    queryKey: ["processes", deferredSearch],
+    queryFn: () => api<ProcessItem[]>(`/api/processes${deferredSearch ? `?search=${encodeURIComponent(deferredSearch)}` : ""}`),
+    staleTime: 8000,
   });
 
   async function killProcess(pid: number) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api("/api/processes/kill", {
-        method: "POST",
-        body: JSON.stringify({ pid, signal: "TERM", confirm_password }),
-      });
+      await api("/api/processes/kill", { method: "POST", body: JSON.stringify({ pid, signal: "TERM", confirm_password: confirmPassword }) });
       setNotice(`Sent TERM to PID ${pid}.`);
       await processes.refetch();
     } catch (error) {
@@ -432,38 +472,29 @@ function ProcessesPage() {
 
   return (
     <Panel title="Processes" subtitle="Live process inventory from psutil">
-      <SectionHeader title="Process List" subtitle="Search and terminate processes" refresh={() => processes.refetch()} />
-      <div className="mb-4 flex gap-3">
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search process name" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+      <SectionHeader title="Process List" subtitle="Search and terminate active processes" refresh={() => processes.refetch()} />
+      <div className="mb-4 grid gap-3 lg:grid-cols-[1fr,auto]">
+        <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search process name" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-ember-500/60" />
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{(processes.data ?? []).length} processes</div>
       </div>
       <ErrorBanner error={processes.error} />
-      {actionError ? <NoticeBanner message={actionError} tone="error" /> : null}
-      {notice ? <NoticeBanner message={notice} /> : null}
-      <div className="max-h-[38rem] overflow-auto rounded-3xl border border-white/10">
+      {actionError ? <Notice message={actionError} tone="error" /> : null}
+      {notice ? <Notice message={notice} /> : null}
+      <div className="max-h-[40rem] overflow-auto rounded-[1.75rem] border border-white/10">
         <table className="min-w-full text-left text-sm text-slate-200">
-          <thead className="bg-white/5 text-slate-400">
-            <tr>
-              <th className="px-4 py-3">PID</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">CPU</th>
-              <th className="px-4 py-3">RAM</th>
-              <th className="px-4 py-3">User</th>
-              <th className="px-4 py-3">Action</th>
-            </tr>
+          <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+            <tr><th className="px-4 py-3">PID</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">CPU</th><th className="px-4 py-3">RAM</th><th className="px-4 py-3">User</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
           </thead>
           <tbody>
             {(processes.data ?? []).map((item) => (
               <tr key={item.pid} className="border-t border-white/5">
                 <td className="px-4 py-3">{item.pid}</td>
-                <td className="px-4 py-3">{item.name}</td>
+                <td className="px-4 py-3 font-medium text-white">{item.name}</td>
                 <td className="px-4 py-3">{formatPercent(item.cpu_percent)}</td>
                 <td className="px-4 py-3">{formatPercent(item.memory_percent)}</td>
                 <td className="px-4 py-3">{item.username}</td>
-                <td className="px-4 py-3">
-                  <ActionButton onClick={() => killProcess(item.pid)} className="bg-white/5 text-white hover:bg-white/10">
-                    Terminate
-                  </ActionButton>
-                </td>
+                <td className="px-4 py-3"><Pill tone={item.status === "running" ? "success" : "neutral"}>{item.status}</Pill></td>
+                <td className="px-4 py-3"><ActionButton onClick={() => killProcess(item.pid)} className="bg-white/5 text-white hover:bg-white/10">Terminate</ActionButton></td>
               </tr>
             ))}
           </tbody>
@@ -479,10 +510,7 @@ function LogsPage() {
   const [serviceName, setServiceName] = useState("");
   const systemLogs = useQuery<{ logs: string }>({
     queryKey: ["system-logs", severity, search],
-    queryFn: () =>
-      api<{ logs: string }>(
-        `/api/logs/system?lines=200${severity ? `&severity=${encodeURIComponent(severity)}` : ""}${search ? `&query=${encodeURIComponent(search)}` : ""}`,
-      ),
+    queryFn: () => api<{ logs: string }>(`/api/logs/system?lines=200${severity ? `&severity=${encodeURIComponent(severity)}` : ""}${search ? `&query=${encodeURIComponent(search)}` : ""}`),
   });
   const serviceLogs = useQuery<{ logs: string }>({
     queryKey: ["logs-service", serviceName],
@@ -492,20 +520,22 @@ function LogsPage() {
 
   return (
     <div className="grid gap-6 xl:grid-cols-2">
-      <Panel title="System Logs" subtitle="Journalctl-backed system logs">
-        <SectionHeader title="System Journal" subtitle="Filter recent entries" refresh={() => systemLogs.refetch()} />
-        <div className="mb-4 grid gap-3 sm:grid-cols-[160px,1fr]">
+      <Panel title="System Logs" subtitle="Journalctl-backed system journal">
+        <SectionHeader title="System Journal" subtitle="Filter recent entries by severity or text" refresh={() => systemLogs.refetch()} />
+        <div className="mb-4 grid gap-3 lg:grid-cols-[180px,1fr]">
           <input value={severity} onChange={(event) => setSeverity(event.target.value)} placeholder="Severity e.g. err" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search text" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search logs" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
         </div>
         <ErrorBanner error={systemLogs.error} />
-        <pre className="max-h-[34rem] overflow-auto rounded-2xl bg-slate-950/80 p-4 text-xs text-slate-300">{systemLogs.data?.logs ?? ""}</pre>
+        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{systemLogs.data?.logs ?? ""}</pre>
       </Panel>
-      <Panel title="Service Logs" subtitle="Journalctl logs for a specific unit">
-        <SectionHeader title="Unit Journal" subtitle="Load logs for one service" refresh={() => serviceLogs.refetch()} />
-        <input value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Service name, e.g. ssh.service" className="mb-4 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+      <Panel title="Service Logs" subtitle="Inspect journal entries for a chosen service">
+        <div className="mb-4 flex gap-3">
+          <input value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Service name e.g. ssh.service" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          <ActionButton onClick={() => serviceLogs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Load</ActionButton>
+        </div>
         <ErrorBanner error={serviceLogs.error} />
-        <pre className="max-h-[34rem] overflow-auto rounded-2xl bg-slate-950/80 p-4 text-xs text-slate-300">{serviceLogs.data?.logs ?? ""}</pre>
+        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{serviceLogs.data?.logs ?? "Enter a service name to load logs."}</pre>
       </Panel>
     </div>
   );
@@ -513,23 +543,21 @@ function LogsPage() {
 
 function FirewallPage() {
   const firewall = useQuery<FirewallStatusResponse>({
-    queryKey: ["firewall-status"],
+    queryKey: ["firewall"],
     queryFn: () => api<FirewallStatusResponse>("/api/firewall/status"),
+    staleTime: 10000,
   });
   const [port, setPort] = useState("2511");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
 
   async function protectedPost(path: string, body: Record<string, unknown> = {}) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api(path, {
-        method: "POST",
-        body: JSON.stringify({ ...body, confirm_password }),
-      });
+      await api(path, { method: "POST", body: JSON.stringify({ ...body, confirm_password: confirmPassword }) });
       setNotice("Firewall update applied successfully.");
       await firewall.refetch();
     } catch (error) {
@@ -539,24 +567,20 @@ function FirewallPage() {
 
   return (
     <Panel title="Firewall" subtitle="UFW-backed firewall management">
-      <SectionHeader title="UFW Status" subtitle="Enable, disable, and manage rules" refresh={() => firewall.refetch()} />
+      <SectionHeader title="UFW Status" subtitle="Enable, disable, and update the active rule set" refresh={() => firewall.refetch()} />
       <ErrorBanner error={firewall.error} />
-      {actionError ? <NoticeBanner message={actionError} tone="error" /> : null}
-      {notice ? <NoticeBanner message={notice} /> : null}
-      <pre className="mb-6 max-h-[20rem] overflow-auto rounded-2xl bg-slate-950/80 p-4 text-xs text-slate-300">{firewall.data?.status ?? ""}</pre>
+      {actionError ? <Notice message={actionError} tone="error" /> : null}
+      {notice ? <Notice message={notice} /> : null}
+      <pre className="mb-6 max-h-[22rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{firewall.data?.status ?? ""}</pre>
       <div className="grid gap-4 xl:grid-cols-[220px,1fr]">
         <div className="flex gap-3">
           <ActionButton onClick={() => protectedPost("/api/firewall/enable")}>Enable</ActionButton>
-          <ActionButton onClick={() => protectedPost("/api/firewall/disable")} className="bg-white/5 text-white hover:bg-white/10">
-            Disable
-          </ActionButton>
+          <ActionButton onClick={() => protectedPost("/api/firewall/disable")} className="bg-white/5 text-white hover:bg-white/10">Disable</ActionButton>
         </div>
-        <div className="flex gap-3">
-          <input value={port} onChange={(event) => setPort(event.target.value)} className="w-40 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+        <div className="flex flex-col gap-3 md:flex-row">
+          <input value={port} onChange={(event) => setPort(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white md:w-40" />
           <ActionButton onClick={() => protectedPost("/api/firewall/allow-port", { port: Number(port), protocol: "tcp" })}>Allow Port</ActionButton>
-          <ActionButton onClick={() => protectedPost("/api/firewall/deny-port", { port: Number(port), protocol: "tcp" })} className="bg-white/5 text-white hover:bg-white/10">
-            Deny Port
-          </ActionButton>
+          <ActionButton onClick={() => protectedPost("/api/firewall/deny-port", { port: Number(port), protocol: "tcp" })} className="bg-white/5 text-white hover:bg-white/10">Deny Port</ActionButton>
         </div>
       </div>
     </Panel>
@@ -567,21 +591,19 @@ function UsersPage() {
   const users = useQuery<UserItem[]>({
     queryKey: ["users"],
     queryFn: () => api<UserItem[]>("/api/users"),
+    staleTime: 12000,
   });
   const [createForm, setCreateForm] = useState({ username: "", shell: "/bin/bash", password: "", sudo: false });
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
 
   async function protectedUserAction(path: string, body: Record<string, unknown>) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api(path, {
-        method: "POST",
-        body: JSON.stringify({ ...body, confirm_password }),
-      });
+      await api(path, { method: "POST", body: JSON.stringify({ ...body, confirm_password: confirmPassword }) });
       setNotice("User operation completed successfully.");
       await users.refetch();
     } catch (error) {
@@ -600,41 +622,26 @@ function UsersPage() {
       <Panel title="Users" subtitle="Local Linux account management">
         <SectionHeader title="Accounts" subtitle="View and operate on system users" refresh={() => users.refetch()} />
         <ErrorBanner error={users.error} />
-        {actionError ? <NoticeBanner message={actionError} tone="error" /> : null}
-        {notice ? <NoticeBanner message={notice} /> : null}
-        <div className="max-h-[38rem] overflow-auto rounded-3xl border border-white/10">
+        {actionError ? <Notice message={actionError} tone="error" /> : null}
+        {notice ? <Notice message={notice} /> : null}
+        <div className="max-h-[38rem] overflow-auto rounded-[1.75rem] border border-white/10">
           <table className="min-w-full text-left text-sm text-slate-200">
-            <thead className="bg-white/5 text-slate-400">
-              <tr>
-                <th className="px-4 py-3">User</th>
-                <th className="px-4 py-3">Home</th>
-                <th className="px-4 py-3">Shell</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
+            <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+              <tr><th className="px-4 py-3">User</th><th className="px-4 py-3">Home</th><th className="px-4 py-3">Shell</th><th className="px-4 py-3">Actions</th></tr>
             </thead>
             <tbody>
               {(users.data ?? []).map((item) => (
                 <tr key={item.username} className="border-t border-white/5">
-                  <td className="px-4 py-3">{item.username}</td>
-                  <td className="px-4 py-3">{item.home}</td>
-                  <td className="px-4 py-3">{item.shell}</td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-4"><div className="font-medium text-white">{item.username}</div><div className="mt-1 text-xs text-slate-500">UID {item.uid} · GID {item.gid}</div></td>
+                  <td className="px-4 py-4">{item.home}</td>
+                  <td className="px-4 py-4">{item.shell}</td>
+                  <td className="px-4 py-4">
                     <div className="flex flex-wrap gap-2">
-                      <ActionButton onClick={() => protectedUserAction("/api/users/lock", { username: item.username })} className="bg-white/5 text-white hover:bg-white/10" disabled={item.username === "root"}>
-                        Lock
-                      </ActionButton>
-                      <ActionButton onClick={() => protectedUserAction("/api/users/unlock", { username: item.username })} className="bg-white/5 text-white hover:bg-white/10">
-                        Unlock
-                      </ActionButton>
-                      <ActionButton onClick={() => protectedUserAction("/api/users/set-sudo", { username: item.username, enabled: true })} className="bg-white/5 text-white hover:bg-white/10">
-                        Grant sudo
-                      </ActionButton>
-                      <ActionButton onClick={() => protectedUserAction("/api/users/set-sudo", { username: item.username, enabled: false })} className="bg-white/5 text-white hover:bg-white/10">
-                        Revoke sudo
-                      </ActionButton>
-                      <ActionButton onClick={() => protectedUserAction("/api/users/delete", { username: item.username })} className="bg-rose-500/20 text-rose-100 hover:bg-rose-500/30" disabled={item.username === "root"}>
-                        Delete
-                      </ActionButton>
+                      <ActionButton onClick={() => protectedUserAction("/api/users/lock", { username: item.username })} className="bg-white/5 text-white hover:bg-white/10" disabled={item.username === "root"}>Lock</ActionButton>
+                      <ActionButton onClick={() => protectedUserAction("/api/users/unlock", { username: item.username })} className="bg-white/5 text-white hover:bg-white/10">Unlock</ActionButton>
+                      <ActionButton onClick={() => protectedUserAction("/api/users/set-sudo", { username: item.username, enabled: true })} className="bg-white/5 text-white hover:bg-white/10">Grant sudo</ActionButton>
+                      <ActionButton onClick={() => protectedUserAction("/api/users/set-sudo", { username: item.username, enabled: false })} className="bg-white/5 text-white hover:bg-white/10">Revoke sudo</ActionButton>
+                      <ActionButton onClick={() => protectedUserAction("/api/users/delete", { username: item.username })} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25" disabled={item.username === "root"}>Delete</ActionButton>
                     </div>
                   </td>
                 </tr>
@@ -643,15 +650,12 @@ function UsersPage() {
           </table>
         </div>
       </Panel>
-      <Panel title="Create User" subtitle="Provision a new system account">
+      <Panel title="Create User" subtitle="Provision a new local system account">
         <form onSubmit={createUser} className="space-y-4">
           <input value={createForm.username} onChange={(event) => setCreateForm((current) => ({ ...current, username: event.target.value }))} placeholder="Username" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
           <input value={createForm.shell} onChange={(event) => setCreateForm((current) => ({ ...current, shell: event.target.value }))} placeholder="/bin/bash" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
           <input type="password" value={createForm.password} onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))} placeholder="Initial password" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <label className="flex items-center gap-3 text-sm text-slate-300">
-            <input type="checkbox" checked={createForm.sudo} onChange={(event) => setCreateForm((current) => ({ ...current, sudo: event.target.checked }))} />
-            Grant sudo access
-          </label>
+          <Toggle checked={createForm.sudo} onChange={(checked) => setCreateForm((current) => ({ ...current, sudo: checked }))} label="Grant sudo access" description="A full-width toggle so the interaction is reliable on desktop and mobile." />
           <ActionButton type="submit">Create User</ActionButton>
         </form>
       </Panel>
@@ -677,40 +681,31 @@ function FilesPage() {
   });
 
   useEffect(() => {
-    if (fileContents.data) {
-      setEditorContent(fileContents.data.content);
-    }
+    if (fileContents.data) setEditorContent(fileContents.data.content);
   }, [fileContents.data]);
 
   async function writeFile() {
     if (!selectedFile) return;
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api("/api/files/write", {
-        method: "POST",
-        body: JSON.stringify({ path: selectedFile, content: editorContent, create_backup: true, confirm_password }),
-      });
+      await api("/api/files/write", { method: "POST", body: JSON.stringify({ path: selectedFile, content: editorContent, create_backup: true, confirm_password: confirmPassword }) });
       setNotice(`Saved ${selectedFile}.`);
-      await fileContents.refetch();
-      await files.refetch();
+      await Promise.all([fileContents.refetch(), files.refetch()]);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "File save failed");
     }
   }
 
   async function deletePath(path: string) {
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api("/api/files/delete", {
-        method: "POST",
-        body: JSON.stringify({ path, confirm_password }),
-      });
+      await api("/api/files/delete", { method: "POST", body: JSON.stringify({ path, confirm_password: confirmPassword }) });
       setNotice(`Deleted ${path}.`);
       if (selectedFile === path) {
         setSelectedFile("");
@@ -724,16 +719,13 @@ function FilesPage() {
 
   async function createDirectory(event: FormEvent) {
     event.preventDefault();
-    const confirm_password = askForConfirmation();
-    if (!confirm_password) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
     const target = newDir.startsWith("/") ? newDir : `${currentPath.replace(/\/$/, "")}/${newDir}`;
     setNotice("");
     setActionError("");
     try {
-      await api("/api/files/mkdir", {
-        method: "POST",
-        body: JSON.stringify({ path: target, confirm_password }),
-      });
+      await api("/api/files/mkdir", { method: "POST", body: JSON.stringify({ path: target, confirm_password: confirmPassword }) });
       setNotice(`Created directory ${target}.`);
       setNewDir("");
       await files.refetch();
@@ -745,59 +737,41 @@ function FilesPage() {
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
       <Panel title="Files" subtitle="Bounded file management for common admin roots">
-        <SectionHeader title="Browser" subtitle="Navigate and inspect files" refresh={() => files.refetch()} />
+        <SectionHeader title="Browser" subtitle="Navigate common system paths and open text files" refresh={() => files.refetch()} />
         <div className="mb-4 flex gap-3">
           <input value={currentPath} onChange={(event) => setCurrentPath(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <ActionButton type="button" onClick={() => files.refetch()}>
-            Open
-          </ActionButton>
+          <ActionButton type="button" onClick={() => files.refetch()}>Open</ActionButton>
         </div>
         <form onSubmit={createDirectory} className="mb-4 flex gap-3">
           <input value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="New directory name or path" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">
-            Create Dir
-          </ActionButton>
+          <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">Create Dir</ActionButton>
         </form>
         <ErrorBanner error={files.error} />
-        {actionError ? <NoticeBanner message={actionError} tone="error" /> : null}
-        {notice ? <NoticeBanner message={notice} /> : null}
-        <div className="max-h-[34rem] overflow-auto rounded-3xl border border-white/10">
+        {actionError ? <Notice message={actionError} tone="error" /> : null}
+        {notice ? <Notice message={notice} /> : null}
+        <div className="max-h-[36rem] overflow-auto rounded-[1.75rem] border border-white/10">
           <table className="min-w-full text-left text-sm text-slate-200">
-            <thead className="bg-white/5 text-slate-400">
-              <tr>
-                <th className="px-4 py-3">Path</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Permissions</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
+            <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+              <tr><th className="px-4 py-3">Path</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Size</th><th className="px-4 py-3">Permissions</th><th className="px-4 py-3">Actions</th></tr>
             </thead>
             <tbody>
               {(files.data ?? []).map((item) => (
                 <tr key={item.path} className="border-t border-white/5">
                   <td className="px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (item.type === "directory") {
-                          setCurrentPath(item.path);
-                          setSelectedFile("");
-                          setEditorContent("");
-                        } else {
-                          setSelectedFile(item.path);
-                        }
-                      }}
-                      className="text-left text-white hover:text-ember-300"
-                    >
-                      {item.path}
-                    </button>
+                    <button type="button" onClick={() => {
+                      if (item.type === "directory") {
+                        setCurrentPath(item.path);
+                        setSelectedFile("");
+                        setEditorContent("");
+                      } else {
+                        setSelectedFile(item.path);
+                      }
+                    }} className="text-left text-white transition hover:text-ember-300">{item.path}</button>
                   </td>
                   <td className="px-4 py-3">{item.type}</td>
+                  <td className="px-4 py-3">{formatBytes(item.size)}</td>
                   <td className="px-4 py-3">{item.permissions}</td>
-                  <td className="px-4 py-3">
-                    <ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/20 text-rose-100 hover:bg-rose-500/30">
-                      Delete
-                    </ActionButton>
-                  </td>
+                  <td className="px-4 py-3"><ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton></td>
                 </tr>
               ))}
             </tbody>
@@ -807,11 +781,9 @@ function FilesPage() {
       <Panel title="Editor" subtitle="Read and write text files with backup safety">
         <div className="mb-3 text-sm text-slate-400">{selectedFile || "Select a file from the browser"}</div>
         <ErrorBanner error={fileContents.error} />
-        <textarea value={editorContent} onChange={(event) => setEditorContent(event.target.value)} className="min-h-[28rem] w-full rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
-        <div className="mt-4 flex gap-3">
-          <ActionButton onClick={writeFile} disabled={!selectedFile}>
-            Save File
-          </ActionButton>
+        <textarea value={editorContent} onChange={(event) => setEditorContent(event.target.value)} className="min-h-[30rem] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
+        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+          <ActionButton onClick={writeFile} disabled={!selectedFile}>Save File</ActionButton>
           {selectedFile ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Backups are written as `*.bak` before overwrite.</div> : null}
         </div>
       </Panel>
@@ -819,123 +791,35 @@ function FilesPage() {
   );
 }
 
-function NetworkPage() {
-  const network = useQuery<Record<string, unknown>>({
-    queryKey: ["network-dns"],
-    queryFn: () => api<Record<string, unknown>>("/api/network/dns"),
-  });
-
-  return (
-    <Panel title="Network" subtitle="Basic network details">
-      <SectionHeader title="Network State" subtitle="More advanced editing remains outside the core pass" refresh={() => network.refetch()} />
-      <JsonBlock value={network.data ?? {}} />
-    </Panel>
-  );
-}
-
-function DockerPage() {
-  const docker = useQuery<Record<string, unknown>>({
-    queryKey: ["docker-status"],
-    queryFn: () => api<Record<string, unknown>>("/api/docker/status"),
-  });
-
-  return (
-    <Panel title="Docker" subtitle="Installed engine visibility">
-      <SectionHeader title="Docker Status" subtitle="Wired to the backend Docker API" refresh={() => docker.refetch()} />
-      <JsonBlock value={docker.data ?? {}} />
-    </Panel>
-  );
-}
-
-function SimpleJsonPage({ title, subtitle, queryKey, path }: { title: string; subtitle: string; queryKey: string[]; path: string }) {
-  const data = useQuery<Record<string, unknown> | Array<Record<string, unknown>>>({
-    queryKey,
-    queryFn: () => api<Record<string, unknown> | Array<Record<string, unknown>>>(path),
-  });
-
-  return (
-    <Panel title={title} subtitle={subtitle}>
-      <SectionHeader title={title} subtitle={subtitle} refresh={() => data.refetch()} />
-      <JsonBlock value={data.data ?? {}} />
-    </Panel>
-  );
-}
-
 function Dashboard() {
   const queryClient = useQueryClient();
   const [current, setCurrent] = useState<ModuleKey>("overview");
-  const settings = useQuery<SettingsState>({
-    queryKey: ["settings"],
-    queryFn: () => api<SettingsState>("/api/settings"),
-  });
-  const overview = useQuery<Overview>({
-    queryKey: ["header-overview"],
-    queryFn: () => api<Overview>("/api/system/overview"),
-    refetchInterval: 20000,
-  });
-
-  const topStatus = useMemo(() => {
-    if (!overview.data) return "Syncing node state";
-    return `${overview.data.hostname} | ${overview.data.os_version}`;
-  }, [overview.data]);
+  const settings = useQuery<SettingsState>({ queryKey: ["settings"], queryFn: () => api<SettingsState>("/api/settings"), staleTime: 60000 });
+  const overview = useQuery<Overview>({ queryKey: ["header-overview"], queryFn: () => api<Overview>("/api/system/overview"), refetchInterval: 20000, staleTime: 10000 });
+  const topStatus = useMemo(() => !overview.data ? "Syncing node state" : `${overview.data.hostname} · ${overview.data.os_version}`, [overview.data]);
 
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });
     await queryClient.invalidateQueries({ queryKey: ["session"] });
   }
 
-  let content: ReactElement;
-  switch (current) {
-    case "overview":
-      content = <OverviewPage />;
-      break;
-    case "services":
-      content = <ServicesPage />;
-      break;
-    case "packages":
-      content = <PackagesPage />;
-      break;
-    case "firewall":
-      content = <FirewallPage />;
-      break;
-    case "users":
-      content = <UsersPage />;
-      break;
-    case "files":
-      content = <FilesPage />;
-      break;
-    case "processes":
-      content = <ProcessesPage />;
-      break;
-    case "logs":
-      content = <LogsPage />;
-      break;
-    default:
-      content = <OverviewPage />;
-  }
+  const content = current === "overview" ? <OverviewPage /> : current === "services" ? <ServicesPage /> : current === "packages" ? <PackagesPage /> : current === "firewall" ? <FirewallPage /> : current === "users" ? <UsersPage /> : current === "files" ? <FilesPage /> : current === "processes" ? <ProcessesPage /> : <LogsPage />;
 
   return (
     <div className="min-h-screen bg-igris-glow text-slate-100">
-      <div className="mx-auto grid min-h-screen max-w-[1680px] gap-6 p-4 lg:grid-cols-[280px,1fr] lg:p-6">
-        <aside className="rounded-[2rem] border border-white/10 bg-black/40 p-5 backdrop-blur">
-          <div className="mb-8">
+      <div className="mx-auto grid min-h-screen max-w-[1700px] gap-6 px-4 py-4 lg:grid-cols-[290px,1fr] lg:px-6 lg:py-6">
+        <aside className="rounded-[2rem] border border-white/10 bg-black/35 p-5 shadow-panel backdrop-blur-xl">
+          <div className="mb-8 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
             <p className="text-xs uppercase tracking-[0.35em] text-ember-300">Igris</p>
             <h1 className="mt-4 font-display text-3xl text-white">Server Command</h1>
-            <p className="mt-3 text-sm text-slate-400">Ubuntu operations, audit, and recovery from one dashboard.</p>
+            <p className="mt-3 text-sm text-slate-400">A sharper control surface for live Ubuntu operations.</p>
           </div>
           <nav className="space-y-2">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const active = current === item.key;
               return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => setCurrent(item.key)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
-                    active ? "bg-ember-500/20 text-white ring-1 ring-ember-400/40" : "text-slate-300 hover:bg-white/5"
-                  }`}
-                >
+                <button key={item.key} type="button" onClick={() => setCurrent(item.key)} className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${active ? "bg-ember-500/18 text-white ring-1 ring-ember-400/35" : "text-slate-300 hover:bg-white/5"}`}>
                   <Icon className="h-4 w-4" />
                   <span>{item.label}</span>
                 </button>
@@ -944,22 +828,16 @@ function Dashboard() {
           </nav>
         </aside>
         <main className="space-y-6">
-          <header className="rounded-[2rem] border border-white/10 bg-black/30 p-5 backdrop-blur">
+          <header className="rounded-[2rem] border border-white/10 bg-black/30 p-5 shadow-panel backdrop-blur-xl">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-ember-300">Node Status</p>
                 <h2 className="mt-3 text-3xl font-semibold text-white">{topStatus}</h2>
-                <p className="mt-2 text-sm text-slate-400">
-                  Dashboard port {settings.data?.server_port ?? 2511}, terminal {settings.data?.allow_terminal ? "enabled" : "disabled"}.
-                </p>
+                <p className="mt-2 text-sm text-slate-400">Dashboard port {settings.data?.server_port ?? 2511}, terminal {settings.data?.allow_terminal ? "enabled" : "disabled"}.</p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
-                  Secure session active
-                </div>
-                <button type="button" onClick={logout} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">
-                  Sign out
-                </button>
+                <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">Secure session active</div>
+                <button type="button" onClick={logout} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">Sign out</button>
               </div>
             </div>
           </header>
@@ -973,14 +851,7 @@ function Dashboard() {
 export default function App() {
   const session = useSession();
   const queryClient = useQueryClient();
-
-  if (session.isLoading) {
-    return <div className="flex min-h-screen items-center justify-center bg-igris-glow text-slate-200">Synchronizing secure session...</div>;
-  }
-
-  if (session.isError) {
-    return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["session"] })} />;
-  }
-
+  if (session.isLoading) return <div className="flex min-h-screen items-center justify-center bg-igris-glow text-slate-200">Synchronizing secure session...</div>;
+  if (session.isError) return <LoginPage onLogin={() => queryClient.invalidateQueries({ queryKey: ["session"] })} />;
   return <Dashboard />;
 }
