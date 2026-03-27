@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -16,4 +18,29 @@ def create_alert(db: Session, level: str, message: str, source: str = "manual") 
     db.commit()
     db.refresh(alert)
     return alert
+
+
+def find_recent_alert(db: Session, *, source: str, message: str, within_minutes: int = 60) -> AlertRecord | None:
+    cutoff = datetime.utcnow() - timedelta(minutes=within_minutes)
+    stmt = (
+        select(AlertRecord)
+        .where(AlertRecord.source == source, AlertRecord.message == message, AlertRecord.created_at >= cutoff)
+        .order_by(AlertRecord.created_at.desc())
+        .limit(1)
+    )
+    return db.scalar(stmt)
+
+
+def create_alert_once(
+    db: Session,
+    *,
+    level: str,
+    message: str,
+    source: str = "system",
+    within_minutes: int = 60,
+) -> AlertRecord | None:
+    existing = find_recent_alert(db, source=source, message=message, within_minutes=within_minutes)
+    if existing:
+        return None
+    return create_alert(db, level=level, message=message, source=source)
 

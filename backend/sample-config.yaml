@@ -8,6 +8,7 @@ auth:
   password_hash: ""
   session_secret: ""
   session_timeout_minutes: 30
+  admin_email: ""
 
 system:
   managed_user: ubuntu
@@ -27,3 +28,21 @@ security:
   trusted_subnets: []
   require_reauth_for_dangerous_actions: true
   audit_log_enabled: true
+
+email:
+  enabled: true
+  recipient: ""
+
+monitoring:
+  enabled: true
+  interval_seconds: 300
+  cpu_threshold_percent: 85
+  memory_threshold_percent: 90
+  disk_threshold_percent: 90
+
+updates:
+  enabled: true
+  auto_update: false
+  check_interval_seconds: 1800
+  repo_url: https://github.com/hasib9797/igris
+  branch: main

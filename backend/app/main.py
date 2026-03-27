@@ -19,6 +19,7 @@ from backend.app.auth.session import COOKIE_NAME, decode_session
 from backend.app.config import get_config
 from backend.app.db.session import Base, get_engine, get_session_factory, init_database
 from backend.app.models import AdminUser
+from backend.app.services.automation import run_background_loops
 from backend.app.utils.audit import log_audit
 
 
@@ -45,6 +46,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="Igris", version="1.0.0")
     app.state.shutdown_event = asyncio.Event()
+    app.state.background_task = None
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -54,9 +56,20 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
 
+    @app.on_event("startup")
+    async def start_background_automation() -> None:
+        app.state.background_task = asyncio.create_task(run_background_loops(app.state.shutdown_event))
+
     @app.on_event("shutdown")
     async def mark_shutdown() -> None:
         app.state.shutdown_event.set()
+        background_task = app.state.background_task
+        if background_task is not None:
+            background_task.cancel()
+            try:
+                await background_task
+            except asyncio.CancelledError:
+                pass
 
     @app.exception_handler(RuntimeError)
     async def handle_runtime_error(_, exc: RuntimeError) -> JSONResponse:

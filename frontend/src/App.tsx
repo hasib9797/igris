@@ -1,7 +1,7 @@
 import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X } from "lucide-react";
+import { Activity, BellRing, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
@@ -9,7 +9,7 @@ import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
 
-type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs" | "console";
+type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs" | "alerts" | "console";
 type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
 type PackageSearchItem = { name: string; description: string };
 type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
@@ -18,7 +18,18 @@ type ProcessItem = { pid: number; name: string; username: string; cpu_percent: n
 type FileItem = { path: string; type: "file" | "directory"; size: number; owner: string | null; group: string | null; permissions: string; modified_at: string | null };
 type FileReadResponse = { path: string; content: string; size: number; permissions: string };
 type FirewallStatusResponse = { status: string };
-type SettingsState = { server_port: number; bind_address: string; session_timeout_minutes: number; allow_terminal: boolean; docker_enabled: boolean; require_reauth_for_dangerous_actions: boolean };
+type AlertItem = { id: number; level: string; message: string; source: string; resolved: boolean; created_at: string | null };
+type SettingsState = {
+  server_port: number;
+  bind_address: string;
+  session_timeout_minutes: number;
+  allow_terminal: boolean;
+  docker_enabled: boolean;
+  require_reauth_for_dangerous_actions: boolean;
+  admin_email: string;
+  monitoring_enabled: boolean;
+  auto_update_enabled: boolean;
+};
 
 const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }> = [
   { key: "overview", label: "Overview", icon: Activity },
@@ -29,6 +40,7 @@ const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }>
   { key: "files", label: "Files", icon: FolderTree },
   { key: "processes", label: "Processes", icon: Blocks },
   { key: "logs", label: "Logs", icon: ScrollText },
+  { key: "alerts", label: "Alerts", icon: BellRing },
   { key: "console", label: "Console", icon: TerminalSquare },
 ];
 
@@ -186,6 +198,20 @@ function OverviewPage() {
               <div className="space-y-2 text-sm text-slate-300">
                 {data.pending_updates.length ? data.pending_updates.slice(0, 10).map((item) => <div key={item}>{item}</div>) : <div>No upgradable packages reported.</div>}
               </div>
+            </div>
+          </div>
+        ) : null}
+        {data ? (
+          <div className="mt-6 rounded-[1.75rem] border border-sky-400/20 bg-sky-500/10 p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-sky-200/70">AI Monitor</p>
+                <p className="mt-2 text-lg text-white">{data.ai_monitor_summary}</p>
+              </div>
+              <Pill tone={data.ai_monitor_findings.length ? "warning" : "success"}>{data.ai_monitor_findings.length ? "Attention needed" : "Healthy"}</Pill>
+            </div>
+            <div className="mt-4 space-y-2 text-sm text-sky-50/90">
+              {data.ai_monitor_findings.length ? data.ai_monitor_findings.map((item) => <div key={item}>{item}</div>) : <div>No active monitor findings right now.</div>}
             </div>
           </div>
         ) : null}
@@ -865,6 +891,59 @@ function FilesPage() {
   );
 }
 
+function AlertsPage() {
+  const alerts = useQuery<AlertItem[]>({
+    queryKey: ["alerts"],
+    queryFn: () => api<AlertItem[]>("/api/alerts"),
+    staleTime: 5000,
+    refetchInterval: 10000,
+  });
+  const [notice, setNotice] = useState("");
+  const [actionError, setActionError] = useState("");
+
+  async function createTestAlert() {
+    setNotice("");
+    setActionError("");
+    try {
+      await api<{ message: string }>("/api/alerts/test", { method: "POST" });
+      setNotice("Test alert created.");
+      await alerts.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to create test alert");
+    }
+  }
+
+  return (
+    <Panel title="Alerts" subtitle="Server monitor, update watch, and manual alert history">
+      <SectionHeader title="Alert Center" subtitle="Review server health warnings, update notices, and email-triggered events" refresh={() => alerts.refetch()} />
+      <ErrorBanner error={alerts.error} />
+      {actionError ? <Notice message={actionError} tone="error" /> : null}
+      {notice ? <Notice message={notice} /> : null}
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <ActionButton onClick={createTestAlert}>Create Test Alert</ActionButton>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{alerts.data?.length ?? 0} recent alerts</div>
+      </div>
+      <div className="space-y-3">
+        {(alerts.data ?? []).map((item) => (
+          <div key={item.id} className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Pill tone={item.level === "critical" ? "danger" : item.level === "warning" ? "warning" : "success"}>{item.level}</Pill>
+                  <Pill tone="neutral">{item.source}</Pill>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-100">{item.message}</p>
+              </div>
+              <div className="text-xs text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Unknown time"}</div>
+            </div>
+          </div>
+        ))}
+        {!alerts.data?.length ? <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5 text-sm text-slate-300">No alerts yet. Igris will add entries here when the monitor or repo watcher finds something.</div> : null}
+      </div>
+    </Panel>
+  );
+}
+
 function ConsolePage() {
   const [command, setCommand] = useState("");
   const [output, setOutput] = useState("Console ready.\n");
@@ -963,13 +1042,15 @@ function Dashboard() {
             ? <FirewallPage />
             : current === "users"
               ? <UsersPage />
-              : current === "files"
-                ? <FilesPage />
-                : current === "processes"
-                  ? <ProcessesPage />
-                  : current === "logs"
-                    ? <LogsPage />
-                    : <ConsolePage />;
+                : current === "files"
+                  ? <FilesPage />
+                  : current === "processes"
+                    ? <ProcessesPage />
+                    : current === "logs"
+                      ? <LogsPage />
+                      : current === "alerts"
+                        ? <AlertsPage />
+                        : <ConsolePage />;
 
   return (
     <div className="min-h-screen bg-igris-glow text-slate-100">
@@ -999,7 +1080,7 @@ function Dashboard() {
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-ember-300">Node Status</p>
                 <h2 className="mt-3 text-3xl font-semibold text-white">{topStatus}</h2>
-                <p className="mt-2 text-sm text-slate-400">Dashboard port {settings.data?.server_port ?? 2511}, terminal {settings.data?.allow_terminal ? "enabled" : "disabled"}.</p>
+                <p className="mt-2 text-sm text-slate-400">Dashboard port {settings.data?.server_port ?? 2511}, terminal {settings.data?.allow_terminal ? "enabled" : "disabled"}, monitor {settings.data?.monitoring_enabled ? "enabled" : "disabled"}.</p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">Secure session active</div>

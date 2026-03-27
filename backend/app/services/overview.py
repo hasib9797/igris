@@ -8,7 +8,9 @@ from pathlib import Path
 import httpx
 import psutil
 
+from backend.app.config import get_config
 from backend.app.services.command import run_command
+from backend.app.services.monitoring import build_monitor_summary
 
 
 def _public_ip() -> str | None:
@@ -34,6 +36,7 @@ def _os_release() -> str:
 
 
 def get_system_overview() -> dict:
+    config = get_config()
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
     boot = psutil.boot_time()
@@ -61,6 +64,7 @@ def get_system_overview() -> dict:
         local_ips.extend([entry.address for entry in entries if "." in entry.address])
     failed_services = run_command(["systemctl", "--failed", "--no-legend", "--plain"], timeout=10)
     updates = run_command(["apt", "list", "--upgradable"], timeout=20)
+    monitor_summary, monitor_events = build_monitor_summary(config)
     return {
         "hostname": socket.gethostname(),
         "os_version": _os_release(),
@@ -75,6 +79,8 @@ def get_system_overview() -> dict:
         "failed_services": [line.strip() for line in failed_services.stdout.splitlines() if line.strip()][:10],
         "top_processes": top[:5],
         "pending_updates": [line.strip() for line in updates.stdout.splitlines()[1:] if line.strip()][:20],
+        "ai_monitor_summary": monitor_summary,
+        "ai_monitor_findings": [event.message for event in monitor_events],
     }
 
 

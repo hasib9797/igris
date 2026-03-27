@@ -17,4 +17,6 @@ export type Overview = {
   failed_services: string[];
   top_processes: Array<Record<string, unknown>>;
   pending_updates: string[];
+  ai_monitor_summary: string;
+  ai_monitor_findings: string[];
 };

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import getpass
+import re
 import secrets
 import shutil
 import socket
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +18,7 @@ from scripts.open_firewall import install_ufw_profile, allow_port
 
 CONFIG_PATH = Path("/etc/igris/config.yaml")
 DATA_DIR = Path("/var/lib/igris")
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _ask(prompt: str, default: str | None = None) -> str:
@@ -26,12 +27,28 @@ def _ask(prompt: str, default: str | None = None) -> str:
     return value or (default or "")
 
 
+def _ask_required(prompt: str, default: str | None = None) -> str:
+    while True:
+        value = _ask(prompt, default)
+        if value:
+            return value
+        print("[Igris] A value is required.")
+
+
 def _ask_bool(prompt: str, default: bool) -> bool:
     suffix = "Y/n" if default else "y/N"
     value = input(f"{prompt} [{suffix}]: ").strip().lower()
     if not value:
         return default
     return value in {"y", "yes"}
+
+
+def _ask_email(prompt: str, default: str | None = None) -> str:
+    while True:
+        value = _ask_required(prompt, default)
+        if EMAIL_RE.match(value):
+            return value
+        print("[Igris] Enter a valid email address.")
 
 
 def _detect_ip() -> str:
@@ -79,6 +96,8 @@ def reset_admin_password() -> None:
 def run_setup() -> None:
     print("Igris setup wizard")
     admin_username = _ask("Dashboard admin username", "admin")
+    enable_email_alerts = _ask_bool("Enable email alerts", True)
+    admin_email = _ask_email("Alert email address") if enable_email_alerts else ""
     password = getpass.getpass("Dashboard password: ")
     confirm = getpass.getpass("Confirm dashboard password: ")
     if password != confirm:
@@ -89,6 +108,8 @@ def run_setup() -> None:
     open_ufw = _ask_bool("Open UFW automatically", True)
     enable_terminal = _ask_bool("Enable terminal module", False)
     enable_docker = _ask_bool("Enable Docker module", True)
+    enable_monitoring = _ask_bool("Enable server monitor and alerts", True)
+    auto_update = _ask_bool("Enable automatic updates when the GitHub repo changes", False)
 
     print("[Igris] Preparing configuration directories")
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -100,11 +121,17 @@ def run_setup() -> None:
     config.server.port = port
     config.server.host = bind_address
     config.auth.admin_username = admin_username
+    config.auth.admin_email = admin_email
     config.auth.password_hash = hash_password(password)
     config.auth.session_secret = secrets.token_urlsafe(32)
     config.system.managed_user = managed_user
     config.system.allow_terminal = enable_terminal
     config.modules.docker = enable_docker
+    config.email.enabled = enable_email_alerts
+    config.email.recipient = admin_email
+    config.monitoring.enabled = enable_monitoring
+    config.updates.enabled = True
+    config.updates.auto_update = auto_update
     config.config_path = CONFIG_PATH
     config.data_dir = DATA_DIR
     save_config(config, CONFIG_PATH)

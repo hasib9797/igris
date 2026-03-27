@@ -524,7 +524,14 @@ def tasks_delete(payload: TaskDeleteRequest, user: AdminUser = Depends(get_curre
 @router.get("/alerts")
 def alerts(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     return [
-        {"id": item.id, "level": item.level, "message": item.message, "source": item.source, "resolved": item.resolved}
+        {
+            "id": item.id,
+            "level": item.level,
+            "message": item.message,
+            "source": item.source,
+            "resolved": item.resolved,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        }
         for item in alert_service.list_alerts(db)
     ]
 
@@ -546,6 +553,9 @@ def settings(_: AdminUser = Depends(get_current_user)) -> dict:
         "allow_terminal": config.system.allow_terminal,
         "docker_enabled": config.modules.docker,
         "require_reauth_for_dangerous_actions": config.security.require_reauth_for_dangerous_actions,
+        "admin_email": config.auth.admin_email,
+        "monitoring_enabled": config.monitoring.enabled,
+        "auto_update_enabled": config.updates.auto_update,
     }
 
 
@@ -556,8 +566,13 @@ def settings_update(payload: SettingsUpdateRequest, user: AdminUser = Depends(ge
     config.server.port = payload.server_port
     config.server.host = payload.bind_address
     config.auth.session_timeout_minutes = payload.session_timeout_minutes
+    config.auth.admin_email = payload.admin_email
     config.system.allow_terminal = payload.allow_terminal
     config.modules.docker = payload.docker_enabled
     config.security.require_reauth_for_dangerous_actions = payload.require_reauth_for_dangerous_actions
+    config.email.enabled = True
+    config.email.recipient = payload.admin_email
+    config.monitoring.enabled = payload.monitoring_enabled
+    config.updates.auto_update = payload.auto_update_enabled
     save_config(config)
     return MessageResponse(message="Settings updated")

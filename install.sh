@@ -50,12 +50,13 @@ popd >/dev/null
 
 log "Installing backend..."
 install -d "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
-rm -rf "${INSTALL_DIR}/backend" "${INSTALL_DIR}/cli" "${INSTALL_DIR}/scripts" "${INSTALL_DIR}/frontend" "${INSTALL_DIR}/packaging" "${INSTALL_DIR}/venv"
+rm -rf "${INSTALL_DIR}/backend" "${INSTALL_DIR}/cli" "${INSTALL_DIR}/scripts" "${INSTALL_DIR}/frontend" "${INSTALL_DIR}/packaging" "${INSTALL_DIR}/public" "${INSTALL_DIR}/venv"
 
 cp -a "${REPO_ROOT}/backend" "${INSTALL_DIR}/backend"
 cp -a "${REPO_ROOT}/cli" "${INSTALL_DIR}/cli"
 cp -a "${REPO_ROOT}/scripts" "${INSTALL_DIR}/scripts"
 cp -a "${REPO_ROOT}/packaging" "${INSTALL_DIR}/packaging"
+cp -a "${REPO_ROOT}/public" "${INSTALL_DIR}/public"
 install -d "${INSTALL_DIR}/frontend"
 cp -a "${REPO_ROOT}/frontend/dist" "${INSTALL_DIR}/frontend/dist"
 

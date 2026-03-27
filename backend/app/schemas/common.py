@@ -122,6 +122,9 @@ class SettingsUpdateRequest(BaseModel):
     allow_terminal: bool = False
     docker_enabled: bool = True
     require_reauth_for_dangerous_actions: bool = True
+    admin_email: str = ""
+    monitoring_enabled: bool = True
+    auto_update_enabled: bool = False
     confirm_password: str | None = None
 
 
