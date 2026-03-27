@@ -2,35 +2,35 @@ from __future__ import annotations
 
 import os
 import secrets
-from functools import lru_cache
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field
 
 
-DEFAULT_CONFIG_DIR = Path("/etc/igris")
-DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yaml"
-LEGACY_CONFIG_PATH = DEFAULT_CONFIG_DIR / "config.yml"
-DEFAULT_DATA_DIR = Path("/var/lib/igris")
-DEFAULT_AUDIT_LOG = DEFAULT_DATA_DIR / "audit.log"
+DEFAULT_CONFIG_PATH = Path(os.environ.get("IGRIS_CONFIG_PATH", "/etc/igris/config.yaml"))
+DEFAULT_DATA_DIR = Path(os.environ.get("IGRIS_DATA_DIR", "/var/lib/igris"))
+DEFAULT_AUDIT_LOG = Path(os.environ.get("IGRIS_AUDIT_LOG_PATH", "/var/log/igris/audit.log"))
 
 
-class ServerConfig(BaseModel):
+@dataclass
+class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 2511
     https_enabled: bool = False
 
 
-class AuthConfig(BaseModel):
+@dataclass
+class AuthConfig:
     admin_username: str = "admin"
     password_hash: str = ""
-    session_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
+    session_secret: str = ""
     session_timeout_minutes: int = 30
 
 
-class SystemConfig(BaseModel):
+@dataclass
+class SystemConfig:
     managed_user: str = "ubuntu"
     allow_terminal: bool = False
     allow_package_install: bool = True
@@ -39,94 +39,87 @@ class SystemConfig(BaseModel):
     allow_service_management: bool = True
 
 
-class ModuleConfig(BaseModel):
+@dataclass
+class ModulesConfig:
     docker: bool = True
     alerts: bool = True
     tasks: bool = True
     files: bool = True
 
 
-class SecurityConfig(BaseModel):
-    trusted_subnets: list[str] = Field(default_factory=list)
+@dataclass
+class SecurityConfig:
+    trusted_subnets: list[str] = field(default_factory=list)
     require_reauth_for_dangerous_actions: bool = True
     audit_log_enabled: bool = True
 
 
-class AppConfig(BaseModel):
-    server: ServerConfig = Field(default_factory=ServerConfig)
-    auth: AuthConfig = Field(default_factory=AuthConfig)
-    system: SystemConfig = Field(default_factory=SystemConfig)
-    modules: ModuleConfig = Field(default_factory=ModuleConfig)
-    security: SecurityConfig = Field(default_factory=SecurityConfig)
-    data_dir: str = str(DEFAULT_DATA_DIR)
+@dataclass
+class AppConfig:
+    server: ServerConfig = field(default_factory=ServerConfig)
+    auth: AuthConfig = field(default_factory=AuthConfig)
+    system: SystemConfig = field(default_factory=SystemConfig)
+    modules: ModulesConfig = field(default_factory=ModulesConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
+    config_path: Path = DEFAULT_CONFIG_PATH
+    data_dir: Path = DEFAULT_DATA_DIR
     audit_log_path: str = str(DEFAULT_AUDIT_LOG)
-    database_url: str | None = None
-
-    @property
-    def resolved_data_dir(self) -> Path:
-        return Path(self.data_dir)
 
     @property
     def resolved_database_url(self) -> str:
-        if self.database_url:
-            return self.database_url
-        return f"sqlite:///{self.resolved_data_dir / 'database.db'}"
+        database_path = self.data_dir / "database.db"
+        return f"sqlite:///{database_path}"
 
 
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(base)
-    for key, value in override.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = _deep_merge(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
+_config_cache: AppConfig | None = None
 
 
-def _resolve_default_config_path() -> Path:
-    configured = os.environ.get("IGRIS_CONFIG_PATH")
-    if configured:
-        return Path(configured)
-    if DEFAULT_CONFIG_PATH.exists():
-        return DEFAULT_CONFIG_PATH
-    if LEGACY_CONFIG_PATH.exists():
-        return LEGACY_CONFIG_PATH
-    return DEFAULT_CONFIG_PATH
+def _merge_dataclass(instance: Any, values: dict[str, Any] | None) -> Any:
+    if not values:
+        return instance
+    for key, value in values.items():
+        if hasattr(instance, key):
+            setattr(instance, key, value)
+    return instance
 
 
-def default_config_dict() -> dict[str, Any]:
-    return AppConfig().model_dump()
-
-
-def clear_config_cache() -> None:
-    get_config.cache_clear()
-
-
-def load_config(config_path: str | Path | None = None) -> AppConfig:
-    target = Path(config_path) if config_path else _resolve_default_config_path()
-    data_dir_override = os.environ.get("IGRIS_DATA_DIR")
-    if not target.exists():
-        config = AppConfig()
-    else:
-        data = yaml.safe_load(target.read_text(encoding="utf-8")) or {}
-        merged = _deep_merge(default_config_dict(), data)
-        config = AppConfig.model_validate(merged)
-    if data_dir_override:
-        config.data_dir = data_dir_override
-        config.audit_log_path = str(Path(data_dir_override) / "audit.log")
-    config.resolved_data_dir.mkdir(parents=True, exist_ok=True)
-    Path(config.audit_log_path).parent.mkdir(parents=True, exist_ok=True)
+def load_config(path: str | Path | None = None) -> AppConfig:
+    config_path = Path(path or DEFAULT_CONFIG_PATH)
+    config = AppConfig(config_path=config_path)
+    config.data_dir = DEFAULT_DATA_DIR
+    config.audit_log_path = str(DEFAULT_AUDIT_LOG)
+    if config_path.exists():
+        payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        _merge_dataclass(config.server, payload.get("server"))
+        _merge_dataclass(config.auth, payload.get("auth"))
+        _merge_dataclass(config.system, payload.get("system"))
+        _merge_dataclass(config.modules, payload.get("modules"))
+        _merge_dataclass(config.security, payload.get("security"))
+    if not config.auth.session_secret:
+        config.auth.session_secret = secrets.token_urlsafe(32)
     return config
 
 
-@lru_cache(maxsize=1)
+def save_config(config: AppConfig, path: str | Path | None = None) -> None:
+    config_path = Path(path or config.config_path or DEFAULT_CONFIG_PATH)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "server": asdict(config.server),
+        "auth": asdict(config.auth),
+        "system": asdict(config.system),
+        "modules": asdict(config.modules),
+        "security": asdict(config.security),
+    }
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+
+
 def get_config() -> AppConfig:
-    return load_config()
+    global _config_cache
+    if _config_cache is None:
+        _config_cache = load_config()
+    return _config_cache
 
 
-def save_config(config: AppConfig, config_path: str | Path | None = None) -> Path:
-    target = Path(config_path) if config_path else _resolve_default_config_path()
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(yaml.safe_dump(config.model_dump(), sort_keys=False), encoding="utf-8")
-    clear_config_cache()
-    return target
+def clear_config_cache() -> None:
+    global _config_cache
+    _config_cache = None

@@ -7,9 +7,14 @@ from backend.app.config import get_config
 
 def main() -> None:
     config = get_config()
-    uvicorn.run("backend.app.main:app", host=config.server.host, port=config.server.port, reload=False, workers=1)
+    uvicorn.run(
+        "backend.app.main:app",
+        host=config.server.host,
+        port=config.server.port,
+        reload=False,
+        log_level="info",
+    )
 
 
 if __name__ == "__main__":
     main()
-

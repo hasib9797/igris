@@ -537,7 +537,7 @@ function LogsPage() {
 
   return (
     <>
-      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+      <div className="grid gap-6 2xl:grid-cols-[1.15fr,0.85fr]">
         <Panel title="System Logs" subtitle="Journalctl-backed system journal">
           <SectionHeader title="System Journal" subtitle="Filter recent entries by severity or text" refresh={() => systemLogs.refetch()} />
           <div className="mb-4 grid gap-3 lg:grid-cols-[180px,1fr]">
@@ -553,13 +553,13 @@ function LogsPage() {
           <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
             {runningServices.length} running services
           </div>
-          <div className="grid max-h-[34rem] grid-cols-1 gap-3 overflow-auto pr-1 sm:grid-cols-2">
+          <div className="grid max-h-[34rem] grid-cols-2 gap-3 overflow-auto pr-1 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-2">
             {runningServices.map((service) => (
               <button
                 key={service.name}
                 type="button"
                 onClick={() => setSelectedService(service)}
-                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-white transition hover:border-ember-500/40 hover:bg-white/10 hover:text-ember-100"
+                className="min-h-[4.25rem] rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-white transition hover:border-ember-500/40 hover:bg-white/10 hover:text-ember-100"
               >
                 <div className="truncate text-sm font-medium">{service.name}</div>
               </button>
@@ -951,14 +951,14 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-igris-glow text-slate-100">
-      <div className="mx-auto grid min-h-screen max-w-[1700px] gap-6 px-4 py-4 lg:grid-cols-[290px,1fr] lg:px-6 lg:py-6">
-        <aside className="rounded-[2rem] border border-white/10 bg-black/35 p-5 shadow-panel backdrop-blur-xl">
+      <div className="mx-auto grid min-h-screen w-full max-w-[1920px] gap-6 px-3 py-3 lg:grid-cols-[260px,minmax(0,1fr)] xl:grid-cols-[280px,minmax(0,1fr)] sm:px-4 sm:py-4 lg:px-6 lg:py-6">
+        <aside className="animate-igris-rise rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-panel backdrop-blur-xl sm:p-5">
           <div className="mb-8 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
             <p className="text-xs uppercase tracking-[0.35em] text-ember-300">Igris</p>
             <h1 className="mt-4 font-display text-3xl text-white">Server Command</h1>
             <p className="mt-3 text-sm text-slate-400">A sharper control surface for live Ubuntu operations.</p>
           </div>
-          <nav className="space-y-2">
+          <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
             {NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const active = current === item.key;
@@ -972,7 +972,7 @@ function Dashboard() {
           </nav>
         </aside>
         <main className="space-y-6">
-          <header className="rounded-[2rem] border border-white/10 bg-black/30 p-5 shadow-panel backdrop-blur-xl">
+          <header className="animate-igris-rise rounded-[2rem] border border-white/10 bg-black/30 p-4 shadow-panel backdrop-blur-xl sm:p-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.28em] text-ember-300">Node Status</p>
