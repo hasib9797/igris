@@ -95,75 +95,126 @@ def create_app() -> FastAPI:
 
     @app.websocket("/api/terminal/ws")
     async def terminal_socket(websocket: WebSocket) -> None:
-        if not get_config().system.allow_terminal:
-            await websocket.accept()
-            await websocket.send_text("Terminal module is disabled")
-            await websocket.close(code=4403)
-            return
+        process: subprocess.Popen[bytes] | None = None
+        master: int | None = None
+        slave: int | None = None
+        username: str | None = None
 
-        cookie = SimpleCookie()
-        cookie.load(websocket.headers.get("cookie", ""))
-        session_token = cookie[COOKIE_NAME].value if COOKIE_NAME in cookie else None
-        username = decode_session(session_token)
-        if not username:
-            await websocket.accept()
-            await websocket.send_text("Authentication required")
-            await websocket.close(code=4401)
-            return
-
-        with get_session_factory()() as session:
-            user = session.scalar(select(AdminUser).where(AdminUser.username == username))
-            if not user:
+        async def safe_close(code: int, message: str) -> None:
+            try:
                 await websocket.accept()
-                await websocket.send_text("Authentication required")
-                await websocket.close(code=4401)
+            except RuntimeError:
+                pass
+            try:
+                await websocket.send_text(message)
+            except Exception:
+                pass
+            try:
+                await websocket.close(code=code)
+            except Exception:
+                pass
+
+        try:
+            if not get_config().system.allow_terminal:
+                await safe_close(4403, "Terminal module is disabled")
                 return
-            log_audit(session, actor=username, action="terminal.session_open")
 
-        await websocket.accept()
+            cookie = SimpleCookie()
+            cookie.load(websocket.headers.get("cookie", ""))
+            session_token = cookie[COOKIE_NAME].value if COOKIE_NAME in cookie else None
+            username = decode_session(session_token)
+            if not username:
+                await safe_close(4401, "Authentication required")
+                return
 
-        try:
-            import pty
-        except ImportError:
-            await websocket.send_text("Terminal module is unavailable on this platform")
-            await websocket.close(code=4403)
-            return
-
-        master, slave = pty.openpty()
-        process = subprocess.Popen(
-            ["/bin/bash"],
-            stdin=slave,
-            stdout=slave,
-            stderr=slave,
-            text=False,
-            close_fds=True,
-        )
-
-        async def reader() -> None:
-            while True:
-                data = os.read(master, 1024)
-                if not data:
-                    break
-                await websocket.send_text(data.decode(errors="ignore"))
-
-        async def writer() -> None:
-            while True:
-                message = await websocket.receive_text()
-                os.write(master, message.encode())
-
-        try:
-            await asyncio.gather(reader(), writer())
-        except WebSocketDisconnect:
-            pass
-        finally:
             with get_session_factory()() as session:
-                log_audit(session, actor=username, action="terminal.session_close")
-            process.terminate()
-            os.close(master)
-            os.close(slave)
+                user = session.scalar(select(AdminUser).where(AdminUser.username == username))
+                if not user:
+                    await safe_close(4401, "Authentication required")
+                    return
+                log_audit(session, actor=username, action="terminal.session_open")
+
+            await websocket.accept()
+
+            try:
+                import pty
+            except ImportError:
+                await websocket.send_text("Terminal module is unavailable on this platform")
+                await websocket.close(code=4403)
+                return
+
+            master, slave = pty.openpty()
+            process = subprocess.Popen(
+                ["/bin/bash"],
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                text=False,
+                close_fds=True,
+            )
+
+            async def reader() -> None:
+                assert master is not None
+                while True:
+                    try:
+                        data = os.read(master, 1024)
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    try:
+                        await websocket.send_text(data.decode(errors="ignore"))
+                    except Exception:
+                        break
+
+            async def writer() -> None:
+                assert master is not None
+                while True:
+                    try:
+                        message = await websocket.receive_text()
+                    except WebSocketDisconnect:
+                        break
+                    except RuntimeError:
+                        break
+                    try:
+                        os.write(master, message.encode())
+                    except OSError:
+                        break
+
+            reader_task = asyncio.create_task(reader())
+            writer_task = asyncio.create_task(writer())
+            done, pending = await asyncio.wait({reader_task, writer_task}, return_when=asyncio.FIRST_COMPLETED)
+            for task in pending:
+                task.cancel()
+            for task in done:
+                try:
+                    await task
+                except Exception:
+                    pass
+        except Exception:
+            try:
+                await websocket.close(code=1011)
+            except Exception:
+                pass
+        finally:
+            if username:
+                with get_session_factory()() as session:
+                    log_audit(session, actor=username, action="terminal.session_close")
+            if process is not None:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=2)
+                    except Exception:
+                        process.kill()
+            for fd in (master, slave):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
 
     return app
 
 
 app = create_app()
-
