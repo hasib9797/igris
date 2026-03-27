@@ -19,6 +19,8 @@ type FileItem = { path: string; type: "file" | "directory"; size: number; owner:
 type FileReadResponse = { path: string; content: string; size: number; permissions: string };
 type FirewallStatusResponse = { status: string };
 type AlertItem = { id: number; level: string; message: string; source: string; resolved: boolean; created_at: string | null };
+type FirewallProtocol = "tcp" | "udp";
+type UserCreatePreset = "standard" | "operator" | "admin";
 type SettingsState = {
   server_port: number;
   bind_address: string;
@@ -645,6 +647,7 @@ function FirewallPage() {
     refetchInterval: 10000,
   });
   const [port, setPort] = useState("2511");
+  const [protocol, setProtocol] = useState<FirewallProtocol>("tcp");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
 
@@ -676,8 +679,20 @@ function FirewallPage() {
         </div>
         <div className="flex flex-col gap-3 md:flex-row">
           <input value={port} onChange={(event) => setPort(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white md:w-40" />
-          <ActionButton onClick={() => protectedPost("/api/firewall/allow-port", { port: Number(port), protocol: "tcp" })}>Allow Port</ActionButton>
-          <ActionButton onClick={() => protectedPost("/api/firewall/deny-port", { port: Number(port), protocol: "tcp" })} className="bg-white/5 text-white hover:bg-white/10">Deny Port</ActionButton>
+          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-white/5 p-1">
+            {(["tcp", "udp"] as FirewallProtocol[]).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setProtocol(item)}
+                className={`rounded-xl px-4 py-3 text-sm font-medium capitalize transition ${protocol === item ? "bg-ember-500 text-white" : "text-slate-300 hover:bg-white/10"}`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <ActionButton onClick={() => protectedPost("/api/firewall/allow-port", { port: Number(port), protocol })}>Allow {protocol.toUpperCase()}</ActionButton>
+          <ActionButton onClick={() => protectedPost("/api/firewall/deny-port", { port: Number(port), protocol })} className="bg-white/5 text-white hover:bg-white/10">Deny {protocol.toUpperCase()}</ActionButton>
         </div>
       </div>
     </Panel>
@@ -691,9 +706,20 @@ function UsersPage() {
     staleTime: 8000,
     refetchInterval: 15000,
   });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [preset, setPreset] = useState<UserCreatePreset>("standard");
   const [createForm, setCreateForm] = useState({ username: "", shell: "/bin/bash", password: "", sudo: false });
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+
+  function applyPreset(nextPreset: UserCreatePreset) {
+    setPreset(nextPreset);
+    setCreateForm((current) => ({
+      ...current,
+      shell: nextPreset === "standard" ? "/bin/bash" : "/bin/bash",
+      sudo: nextPreset === "admin",
+    }));
+  }
 
   async function protectedUserAction(path: string, body: Record<string, unknown>) {
     const confirmPassword = askForConfirmation();
@@ -713,12 +739,26 @@ function UsersPage() {
     event.preventDefault();
     await protectedUserAction("/api/users/create", createForm);
     setCreateForm({ username: "", shell: "/bin/bash", password: "", sudo: false });
+    setPreset("standard");
+    setShowCreateModal(false);
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
+    <>
       <Panel title="Users" subtitle="Local Linux account management">
-        <SectionHeader title="Accounts" subtitle="View and operate on system users" refresh={() => users.refetch()} />
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="font-display text-2xl text-white">Accounts</h2>
+            <p className="mt-2 text-sm text-slate-400">View and operate on system users</p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <ActionButton onClick={() => setShowCreateModal(true)}>Create User</ActionButton>
+            <button type="button" onClick={() => users.refetch()} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white transition hover:bg-white/10">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+        </div>
         <ErrorBanner error={users.error} />
         {actionError ? <Notice message={actionError} tone="error" /> : null}
         {notice ? <Notice message={notice} /> : null}
@@ -748,16 +788,36 @@ function UsersPage() {
           </table>
         </div>
       </Panel>
-      <Panel title="Create User" subtitle="Provision a new local system account">
-        <form onSubmit={createUser} className="space-y-4">
+      <Modal open={showCreateModal} onClose={() => setShowCreateModal(false)} title="Create User" subtitle="Provision a new local system account with a permission preset">
+        <form onSubmit={createUser} className="space-y-5">
+          <div className="grid gap-3 md:grid-cols-3">
+            {([
+              { key: "standard", title: "Standard", description: "Regular login user without sudo." },
+              { key: "operator", title: "Operator", description: "Shell access for operations without sudo." },
+              { key: "admin", title: "Admin", description: "Full shell access with sudo enabled." },
+            ] as Array<{ key: UserCreatePreset; title: string; description: string }>).map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => applyPreset(item.key)}
+                className={`rounded-[1.5rem] border p-4 text-left transition ${preset === item.key ? "border-ember-500/50 bg-ember-500/12" : "border-white/10 bg-white/5 hover:bg-white/10"}`}
+              >
+                <div className="text-sm font-semibold text-white">{item.title}</div>
+                <div className="mt-2 text-xs leading-6 text-slate-400">{item.description}</div>
+              </button>
+            ))}
+          </div>
           <input value={createForm.username} onChange={(event) => setCreateForm((current) => ({ ...current, username: event.target.value }))} placeholder="Username" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
           <input value={createForm.shell} onChange={(event) => setCreateForm((current) => ({ ...current, shell: event.target.value }))} placeholder="/bin/bash" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
           <input type="password" value={createForm.password} onChange={(event) => setCreateForm((current) => ({ ...current, password: event.target.value }))} placeholder="Initial password" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <Toggle checked={createForm.sudo} onChange={(checked) => setCreateForm((current) => ({ ...current, sudo: checked }))} label="Grant sudo access" description="A full-width toggle so the interaction is reliable on desktop and mobile." />
-          <ActionButton type="submit">Create User</ActionButton>
+          <Toggle checked={createForm.sudo} onChange={(checked) => setCreateForm((current) => ({ ...current, sudo: checked }))} label="Grant sudo access" description="Preset-aware permission toggle that you can still adjust manually before creating the user." />
+          <div className="flex justify-end gap-3">
+            <ActionButton type="button" onClick={() => setShowCreateModal(false)} className="bg-white/5 text-white hover:bg-white/10">Cancel</ActionButton>
+            <ActionButton type="submit">Create User</ActionButton>
+          </div>
         </form>
-      </Panel>
-    </div>
+      </Modal>
+    </>
   );
 }
 
