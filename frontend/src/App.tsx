@@ -512,39 +512,80 @@ function ProcessesPage() {
 function LogsPage() {
   const [severity, setSeverity] = useState("");
   const [search, setSearch] = useState("");
-  const [serviceName, setServiceName] = useState("");
+  const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
   const systemLogs = useQuery<{ logs: string }>({
     queryKey: ["system-logs", severity, search],
     queryFn: () => api<{ logs: string }>(`/api/logs/system?lines=200${severity ? `&severity=${encodeURIComponent(severity)}` : ""}${search ? `&query=${encodeURIComponent(search)}` : ""}`),
     refetchInterval: 5000,
   });
+  const services = useQuery<ServiceItem[]>({
+    queryKey: ["logs-services"],
+    queryFn: () => api<ServiceItem[]>("/api/services"),
+    staleTime: 5000,
+    refetchInterval: 10000,
+  });
+  const runningServices = useMemo(
+    () => (services.data ?? []).filter((item) => item.active === "active").sort((left, right) => left.name.localeCompare(right.name)),
+    [services.data],
+  );
   const serviceLogs = useQuery<{ logs: string }>({
-    queryKey: ["logs-service", serviceName],
-    queryFn: () => api<{ logs: string }>(`/api/logs/service/${encodeURIComponent(serviceName)}?lines=200`),
-    enabled: Boolean(serviceName),
-    refetchInterval: serviceName ? 5000 : false,
+    queryKey: ["logs-service", selectedService?.name],
+    queryFn: () => api<{ logs: string }>(`/api/logs/service/${encodeURIComponent(selectedService?.name ?? "")}?lines=200`),
+    enabled: Boolean(selectedService?.name),
+    refetchInterval: selectedService ? 5000 : false,
   });
 
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      <Panel title="System Logs" subtitle="Journalctl-backed system journal">
-        <SectionHeader title="System Journal" subtitle="Filter recent entries by severity or text" refresh={() => systemLogs.refetch()} />
-        <div className="mb-4 grid gap-3 lg:grid-cols-[180px,1fr]">
-          <input value={severity} onChange={(event) => setSeverity(event.target.value)} placeholder="Severity e.g. err" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search logs" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-        </div>
-        <ErrorBanner error={systemLogs.error} />
-        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{systemLogs.data?.logs ?? ""}</pre>
-      </Panel>
-      <Panel title="Service Logs" subtitle="Inspect journal entries for a chosen service">
-        <div className="mb-4 flex gap-3">
-          <input value={serviceName} onChange={(event) => setServiceName(event.target.value)} placeholder="Service name e.g. ssh.service" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <ActionButton onClick={() => serviceLogs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Load</ActionButton>
+    <>
+      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+        <Panel title="System Logs" subtitle="Journalctl-backed system journal">
+          <SectionHeader title="System Journal" subtitle="Filter recent entries by severity or text" refresh={() => systemLogs.refetch()} />
+          <div className="mb-4 grid gap-3 lg:grid-cols-[180px,1fr]">
+            <input value={severity} onChange={(event) => setSeverity(event.target.value)} placeholder="Severity e.g. err" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search logs" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          </div>
+          <ErrorBanner error={systemLogs.error} />
+          <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{systemLogs.data?.logs ?? ""}</pre>
+        </Panel>
+        <Panel title="Running Services" subtitle="Click a service card to open its logs in a popup">
+          <SectionHeader title="Service Browser" subtitle="Only active services are listed here for quick access" refresh={() => services.refetch()} />
+          <ErrorBanner error={services.error} />
+          <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
+            {runningServices.length} running services
+          </div>
+          <div className="grid max-h-[34rem] grid-cols-1 gap-3 overflow-auto pr-1 sm:grid-cols-2">
+            {runningServices.map((service) => (
+              <button
+                key={service.name}
+                type="button"
+                onClick={() => setSelectedService(service)}
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-white transition hover:border-ember-500/40 hover:bg-white/10 hover:text-ember-100"
+              >
+                <div className="truncate text-sm font-medium">{service.name}</div>
+              </button>
+            ))}
+            {!runningServices.length ? (
+              <div className="rounded-2xl border border-dashed border-white/10 bg-white/5 px-4 py-5 text-sm text-slate-400">
+                No running services found.
+              </div>
+            ) : null}
+          </div>
+        </Panel>
+      </div>
+      <Modal
+        open={Boolean(selectedService)}
+        onClose={() => setSelectedService(null)}
+        title={selectedService?.name ?? "Service logs"}
+        subtitle="Journal entries for the selected running service"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <Pill tone="success">active</Pill>
+          {selectedService ? <ActionButton onClick={() => serviceLogs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Refresh logs</ActionButton> : null}
         </div>
         <ErrorBanner error={serviceLogs.error} />
-        <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{serviceLogs.data?.logs ?? "Enter a service name to load logs."}</pre>
-      </Panel>
-    </div>
+        <pre className="max-h-[60vh] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{serviceLogs.data?.logs ?? "Loading logs..."}</pre>
+      </Modal>
+    </>
   );
 }
 
@@ -807,6 +848,7 @@ function ConsolePage() {
   const [output, setOutput] = useState("Console ready.\n");
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState("");
+  const [consoleUnlocked, setConsoleUnlocked] = useState(false);
   const settings = useQuery<SettingsState>({
     queryKey: ["console-settings"],
     queryFn: () => api<SettingsState>("/api/settings"),
@@ -817,16 +859,33 @@ function ConsolePage() {
     event.preventDefault();
     const trimmed = command.trim();
     if (!trimmed || running) return;
-    const confirmPassword = askForConfirmation();
-    if (!confirmPassword) return;
     setRunning(true);
     setActionError("");
     setOutput((current) => `${current}\n$ ${trimmed}\n`);
     try {
-      const response = await api<{ command: string; stdout: string; stderr: string; exit_code: number }>("/api/terminal/exec", {
-        method: "POST",
-        body: JSON.stringify({ command: trimmed, confirm_password: confirmPassword }),
-      });
+      let response: { command: string; stdout: string; stderr: string; exit_code: number };
+      try {
+        response = await api<{ command: string; stdout: string; stderr: string; exit_code: number }>("/api/terminal/exec", {
+          method: "POST",
+          body: JSON.stringify({ command: trimmed }),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Command execution failed";
+        if (!/confirm|expired|password/i.test(message)) {
+          throw error;
+        }
+        const confirmPassword = askForConfirmation();
+        if (!confirmPassword) {
+          setActionError("Command cancelled. Console remains locked until you confirm once.");
+          setOutput((current) => `${current}[cancelled] confirmation required\n`);
+          return;
+        }
+        response = await api<{ command: string; stdout: string; stderr: string; exit_code: number }>("/api/terminal/exec", {
+          method: "POST",
+          body: JSON.stringify({ command: trimmed, confirm_password: confirmPassword }),
+        });
+        setConsoleUnlocked(true);
+      }
       const stdout = response.stdout || "";
       const stderr = response.stderr ? `\n[stderr]\n${response.stderr}` : "";
       setOutput((current) => `${current}${stdout}${stderr}\n[exit ${response.exit_code}]\n`);
@@ -847,6 +906,7 @@ function ConsolePage() {
       {actionError ? <Notice message={actionError} tone="error" /> : null}
       <div className="mb-4 flex items-center gap-3">
         <Pill tone={settings.data?.allow_terminal ? "success" : "warning"}>{settings.data?.allow_terminal ? "Enabled" : "Disabled"}</Pill>
+        <Pill tone={consoleUnlocked ? "success" : "warning"}>{consoleUnlocked ? "Unlocked for 10 min" : "Locked"}</Pill>
         <div className="text-sm text-slate-400">Persistent shell mode was removed from the dashboard so opening Console can no longer wedge the whole service.</div>
       </div>
       <pre className="min-h-[26rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/90 p-4 font-mono text-xs leading-6 text-slate-200">{output}</pre>

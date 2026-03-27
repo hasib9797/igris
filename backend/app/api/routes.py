@@ -3,13 +3,13 @@
 import subprocess
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_current_user
-from backend.app.auth.session import clear_session_cookie, set_session_cookie
+from backend.app.auth.session import REAUTH_COOKIE_NAME, clear_session_cookie, decode_reauth_token, set_reauth_cookie, set_session_cookie
 from backend.app.config import get_config, save_config
 from backend.app.db.session import get_db
 from backend.app.models import AdminUser
@@ -455,10 +455,20 @@ def docker_images(_: AdminUser = Depends(get_current_user)) -> list[str]:
 
 
 @router.post("/terminal/exec", response_model=TerminalExecResponse)
-def terminal_exec(payload: TerminalExecRequest, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> TerminalExecResponse:
+def terminal_exec(
+    payload: TerminalExecRequest,
+    response: Response,
+    reauth_token: str | None = Cookie(default=None, alias=REAUTH_COOKIE_NAME),
+    user: AdminUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TerminalExecResponse:
     if not get_config().system.allow_terminal:
         raise HTTPException(status_code=403, detail="Terminal module is disabled")
-    _dangerous(db, user.username, payload.confirm_password, "terminal.exec")
+    if payload.confirm_password:
+        _dangerous(db, user.username, payload.confirm_password, "terminal.exec")
+        set_reauth_cookie(response, user.username, "terminal.exec")
+    elif get_config().security.require_reauth_for_dangerous_actions and not decode_reauth_token(reauth_token, user.username, "terminal.exec"):
+        raise HTTPException(status_code=401, detail="Console confirmation expired. Confirm your dashboard password again.")
     try:
         completed = subprocess.run(
             ["/bin/bash", "-lc", payload.command],
