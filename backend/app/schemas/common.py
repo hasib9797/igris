@@ -125,6 +125,18 @@ class SettingsUpdateRequest(BaseModel):
     confirm_password: str | None = None
 
 
+class TerminalExecRequest(BaseModel):
+    command: str
+    confirm_password: str | None = None
+
+
+class TerminalExecResponse(BaseModel):
+    command: str
+    stdout: str = ""
+    stderr: str = ""
+    exit_code: int
+
+
 class FileInfo(BaseModel):
     path: str
     type: str

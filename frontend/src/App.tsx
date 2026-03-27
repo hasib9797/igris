@@ -1,4 +1,4 @@
-import { FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Activity, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X } from "lucide-react";
@@ -804,57 +804,55 @@ function FilesPage() {
 
 function ConsolePage() {
   const [command, setCommand] = useState("");
-  const [output, setOutput] = useState("Connecting to shell...\n");
-  const [connected, setConnected] = useState(false);
-  const [socketError, setSocketError] = useState("");
-  const socketRef = useRef<WebSocket | null>(null);
+  const [output, setOutput] = useState("Console ready.\n");
+  const [running, setRunning] = useState(false);
+  const [actionError, setActionError] = useState("");
+  const settings = useQuery<SettingsState>({
+    queryKey: ["console-settings"],
+    queryFn: () => api<SettingsState>("/api/settings"),
+    staleTime: 60000,
+  });
 
-  useEffect(() => {
-    const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-    const socket = new WebSocket(`${protocol}://${window.location.host}/api/terminal/ws`);
-    socketRef.current = socket;
-    socket.onopen = () => {
-      setConnected(true);
-      setSocketError("");
-      setOutput((current) => `${current}\n[connected]\n`);
-    };
-    socket.onmessage = (event) => {
-      setOutput((current) => `${current}${event.data}`);
-    };
-    socket.onerror = () => {
-      setSocketError("Console connection failed.");
-    };
-    socket.onclose = () => {
-      setConnected(false);
-    };
-
-    return () => {
-      socketRef.current = null;
-      socket.close();
-    };
-  }, []);
-
-  function sendCommand(event: FormEvent) {
+  async function sendCommand(event: FormEvent) {
     event.preventDefault();
     const trimmed = command.trim();
-    if (!trimmed || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) return;
-    socketRef.current.send(`${trimmed}\n`);
+    if (!trimmed || running) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setRunning(true);
+    setActionError("");
     setOutput((current) => `${current}\n$ ${trimmed}\n`);
+    try {
+      const response = await api<{ command: string; stdout: string; stderr: string; exit_code: number }>("/api/terminal/exec", {
+        method: "POST",
+        body: JSON.stringify({ command: trimmed, confirm_password: confirmPassword }),
+      });
+      const stdout = response.stdout || "";
+      const stderr = response.stderr ? `\n[stderr]\n${response.stderr}` : "";
+      setOutput((current) => `${current}${stdout}${stderr}\n[exit ${response.exit_code}]\n`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Command execution failed";
+      setActionError(message);
+      setOutput((current) => `${current}[error] ${message}\n`);
+    } finally {
+      setRunning(false);
+    }
     setCommand("");
   }
 
   return (
-    <Panel title="Console" subtitle="Authenticated live shell access through the backend terminal module">
-      <SectionHeader title="Live Console" subtitle="Commands are executed on the server in real time and audited by the backend." />
-      {socketError ? <Notice message={socketError} tone="error" /> : null}
+    <Panel title="Console" subtitle="Authenticated audited command execution without a persistent shell session">
+      <SectionHeader title="Console" subtitle="Commands run on the server and return live output when the command completes." />
+      <ErrorBanner error={settings.error} />
+      {actionError ? <Notice message={actionError} tone="error" /> : null}
       <div className="mb-4 flex items-center gap-3">
-        <Pill tone={connected ? "success" : "warning"}>{connected ? "Connected" : "Disconnected"}</Pill>
-        <div className="text-sm text-slate-400">This console depends on the terminal module being enabled in Igris settings.</div>
+        <Pill tone={settings.data?.allow_terminal ? "success" : "warning"}>{settings.data?.allow_terminal ? "Enabled" : "Disabled"}</Pill>
+        <div className="text-sm text-slate-400">Persistent shell mode was removed from the dashboard so opening Console can no longer wedge the whole service.</div>
       </div>
       <pre className="min-h-[26rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/90 p-4 font-mono text-xs leading-6 text-slate-200">{output}</pre>
       <form onSubmit={sendCommand} className="mt-4 flex flex-col gap-3 md:flex-row">
-        <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Enter a shell command" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-        <ActionButton type="submit" disabled={!connected}>Run command</ActionButton>
+        <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Enter a shell command" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" disabled={!settings.data?.allow_terminal || running} />
+        <ActionButton type="submit" disabled={!settings.data?.allow_terminal || running}>{running ? "Running..." : "Run command"}</ActionButton>
       </form>
     </Panel>
   );

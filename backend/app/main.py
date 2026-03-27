@@ -3,6 +3,7 @@
 import asyncio
 from http.cookies import SimpleCookie
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
                 session.commit()
 
     app = FastAPI(title="Igris", version="1.0.0")
+    app.state.shutdown_event = asyncio.Event()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -51,6 +53,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
+
+    @app.on_event("shutdown")
+    async def mark_shutdown() -> None:
+        app.state.shutdown_event.set()
 
     @app.exception_handler(RuntimeError)
     async def handle_runtime_error(_, exc: RuntimeError) -> JSONResponse:
@@ -151,6 +157,7 @@ def create_app() -> FastAPI:
                 stderr=slave,
                 text=False,
                 close_fds=True,
+                start_new_session=True,
             )
 
             async def reader() -> None:
@@ -183,7 +190,13 @@ def create_app() -> FastAPI:
 
             reader_task = asyncio.create_task(reader())
             writer_task = asyncio.create_task(writer())
-            done, pending = await asyncio.wait({reader_task, writer_task}, return_when=asyncio.FIRST_COMPLETED)
+            shutdown_task = asyncio.create_task(app.state.shutdown_event.wait())
+            done, pending = await asyncio.wait({reader_task, writer_task, shutdown_task}, return_when=asyncio.FIRST_COMPLETED)
+            if shutdown_task in done:
+                try:
+                    await websocket.close(code=1001)
+                except Exception:
+                    pass
             for task in pending:
                 task.cancel()
             for task in done:
@@ -202,11 +215,17 @@ def create_app() -> FastAPI:
                     log_audit(session, actor=username, action="terminal.session_close")
             if process is not None:
                 if process.poll() is None:
-                    process.terminate()
+                    try:
+                        os.killpg(process.pid, signal.SIGTERM)
+                    except Exception:
+                        process.terminate()
                     try:
                         process.wait(timeout=2)
                     except Exception:
-                        process.kill()
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except Exception:
+                            process.kill()
             for fd in (master, slave):
                 if fd is not None:
                     try:

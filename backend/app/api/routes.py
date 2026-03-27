@@ -32,6 +32,8 @@ from backend.app.schemas.common import (
     TaskCreateRequest,
     TaskDeleteRequest,
     TaskRunRequest,
+    TerminalExecRequest,
+    TerminalExecResponse,
     UserActionRequest,
     UserCreateRequest,
     UserResponse,
@@ -452,6 +454,34 @@ def docker_images(_: AdminUser = Depends(get_current_user)) -> list[str]:
     return docker_service.list_images()
 
 
+@router.post("/terminal/exec", response_model=TerminalExecResponse)
+def terminal_exec(payload: TerminalExecRequest, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> TerminalExecResponse:
+    if not get_config().system.allow_terminal:
+        raise HTTPException(status_code=403, detail="Terminal module is disabled")
+    _dangerous(db, user.username, payload.confirm_password, "terminal.exec")
+    try:
+        completed = subprocess.run(
+            ["/bin/bash", "-lc", payload.command],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as exc:
+        log_audit(db, actor=user.username, action="terminal.exec.timeout", target=payload.command[:120])
+        raise HTTPException(
+            status_code=408,
+            detail=f"Command timed out after 30 seconds: {exc.cmd}",
+        ) from exc
+    log_audit(db, actor=user.username, action="terminal.exec.completed", target=payload.command[:120])
+    return TerminalExecResponse(
+        command=payload.command,
+        stdout=completed.stdout,
+        stderr=completed.stderr,
+        exit_code=completed.returncode,
+    )
+
+
 @router.get("/tasks")
 def tasks(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     return [
@@ -521,4 +551,3 @@ def settings_update(payload: SettingsUpdateRequest, user: AdminUser = Depends(ge
     config.security.require_reauth_for_dangerous_actions = payload.require_reauth_for_dangerous_actions
     save_config(config)
     return MessageResponse(message="Settings updated")
-
