@@ -485,9 +485,13 @@ function ProcessesPage() {
   const processes = useQuery<ProcessItem[]>({
     queryKey: ["processes", deferredSearch],
     queryFn: () => api<ProcessItem[]>(`/api/processes${deferredSearch ? `?search=${encodeURIComponent(deferredSearch)}` : ""}`),
-    staleTime: 3000,
-    refetchInterval: 5000,
+    staleTime: 0,
+    refetchInterval: 2000,
   });
+  const sortedProcesses = useMemo(
+    () => [...(processes.data ?? [])].sort((left, right) => (right.cpu_percent - left.cpu_percent) || (right.memory_percent - left.memory_percent)),
+    [processes.data],
+  );
 
   async function killProcess(pid: number) {
     const confirmPassword = askForConfirmation();
@@ -508,7 +512,7 @@ function ProcessesPage() {
       <SectionHeader title="Process List" subtitle="Search and terminate active processes" refresh={() => processes.refetch()} />
       <div className="mb-4 grid gap-3 lg:grid-cols-[1fr,auto]">
         <input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search process name" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-ember-500/60" />
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{(processes.data ?? []).length} processes</div>
+        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{sortedProcesses.length} processes</div>
       </div>
       <ErrorBanner error={processes.error} />
       {actionError ? <Notice message={actionError} tone="error" /> : null}
@@ -519,7 +523,7 @@ function ProcessesPage() {
             <tr><th className="px-4 py-3">PID</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">CPU</th><th className="px-4 py-3">RAM</th><th className="px-4 py-3">User</th><th className="px-4 py-3">Status</th><th className="px-4 py-3">Action</th></tr>
           </thead>
           <tbody>
-            {(processes.data ?? []).map((item) => (
+            {sortedProcesses.map((item) => (
               <tr key={item.pid} className="border-t border-white/5">
                 <td className="px-4 py-3">{item.pid}</td>
                 <td className="px-4 py-3 font-medium text-white">{item.name}</td>
