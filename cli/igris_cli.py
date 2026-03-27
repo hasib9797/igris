@@ -18,6 +18,9 @@ CONFIG_PATH = Path("/etc/igris/config.yaml")
 DATA_DIR = Path("/var/lib/igris")
 DEFAULT_UPDATE_REPO = "https://github.com/hasib9797/igris"
 DEFAULT_UPDATE_BRANCH = "main"
+INSTALL_ROOT = Path("/usr/lib/igris")
+BIN_PATH = Path("/usr/bin/igris")
+SYSTEMD_SERVICE_PATH = Path("/etc/systemd/system/igris.service")
 
 
 class CliError(RuntimeError):
@@ -149,6 +152,33 @@ def _ensure_git() -> None:
     _run_checked(["apt-get", "install", "-y", "git"], error_message="Unable to install git")
 
 
+def _backup_path(source: Path, backup_root: Path, name: str) -> Path | None:
+    if not source.exists():
+        return None
+    destination = backup_root / name
+    if source.is_dir():
+        shutil.copytree(source, destination, symlinks=True)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, destination)
+    return destination
+
+
+def _restore_path(backup: Path | None, destination: Path) -> None:
+    if destination.exists():
+        if destination.is_dir():
+            shutil.rmtree(destination)
+        else:
+            destination.unlink()
+    if backup is None or not backup.exists():
+        return
+    if backup.is_dir():
+        shutil.copytree(backup, destination, symlinks=True)
+    else:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(backup, destination)
+
+
 def restart() -> int:
     print_banner("RESTART", "Restarting igris.service")
     _require_root("igris --restart")
@@ -167,9 +197,13 @@ def update() -> int:
     branch = DEFAULT_UPDATE_BRANCH
     temp_root = Path(tempfile.mkdtemp(prefix="igris-update-"))
     checkout = temp_root / "repo"
+    backup_root = temp_root / "backup"
     env = os.environ.copy()
     env["GIT_TERMINAL_PROMPT"] = "0"
     env["DEBIAN_FRONTEND"] = "noninteractive"
+    install_backup: Path | None = None
+    bin_backup: Path | None = None
+    service_backup: Path | None = None
 
     try:
         print_step(f"Cloning {repo_url} ({branch})")
@@ -183,18 +217,34 @@ def update() -> int:
         if not install_script.exists():
             raise CliError(f"install.sh not found in update repository: {install_script}")
 
+        print_step("Creating rollback snapshot of the current install")
+        backup_root.mkdir(parents=True, exist_ok=True)
+        install_backup = _backup_path(INSTALL_ROOT, backup_root, "usr-lib-igris")
+        bin_backup = _backup_path(BIN_PATH, backup_root, "usr-bin-igris")
+        service_backup = _backup_path(SYSTEMD_SERVICE_PATH, backup_root, "igris.service")
+
         print_step("Stopping igris.service")
         subprocess.run(["systemctl", "stop", "igris.service"], check=False)
 
-        print_step("Running the installer from the fetched build")
-        _run_checked(["bash", str(install_script)], cwd=checkout, timeout=1800, env=env, error_message="Update installer failed")
+        try:
+            print_step("Running the installer from the fetched build")
+            _run_checked(["bash", str(install_script)], cwd=checkout, timeout=1800, env=env, error_message="Update installer failed")
 
-        print_step("Reloading systemd and starting igris.service")
-        _run_checked(["systemctl", "daemon-reload"], error_message="Unable to reload systemd")
-        _run_checked(["systemctl", "start", "igris.service"], error_message="Unable to start igris.service")
-        _run_checked(["systemctl", "is-active", "--quiet", "igris.service"], error_message="igris.service is not active after update")
-        print_success("Igris updated successfully.")
-        return 0
+            print_step("Reloading systemd and starting igris.service")
+            _run_checked(["systemctl", "daemon-reload"], error_message="Unable to reload systemd")
+            _run_checked(["systemctl", "start", "igris.service"], error_message="Unable to start igris.service")
+            _run_checked(["systemctl", "is-active", "--quiet", "igris.service"], error_message="igris.service is not active after update")
+            print_success("Igris updated successfully.")
+            return 0
+        except Exception as exc:
+            print_error(f"Update failed, restoring previous install: {exc}")
+            _restore_path(install_backup, INSTALL_ROOT)
+            _restore_path(bin_backup, BIN_PATH)
+            _restore_path(service_backup, SYSTEMD_SERVICE_PATH)
+            _run_checked(["systemctl", "daemon-reload"], error_message="Unable to reload systemd after rollback")
+            _run_checked(["systemctl", "start", "igris.service"], error_message="Unable to restart igris.service after rollback")
+            _run_checked(["systemctl", "is-active", "--quiet", "igris.service"], error_message="igris.service did not recover after rollback")
+            raise CliError(f"Update failed and the previous version was restored: {exc}") from exc
     finally:
         shutil.rmtree(temp_root, ignore_errors=True)
 
