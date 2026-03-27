@@ -510,13 +510,13 @@ function ProcessesPage() {
 }
 
 function LogsPage() {
-  const [severity, setSeverity] = useState("");
-  const [search, setSearch] = useState("");
+  const [showSystemLogs, setShowSystemLogs] = useState(false);
   const [selectedService, setSelectedService] = useState<ServiceItem | null>(null);
   const systemLogs = useQuery<{ logs: string }>({
-    queryKey: ["system-logs", severity, search],
-    queryFn: () => api<{ logs: string }>(`/api/logs/system?lines=200${severity ? `&severity=${encodeURIComponent(severity)}` : ""}${search ? `&query=${encodeURIComponent(search)}` : ""}`),
+    queryKey: ["system-logs"],
+    queryFn: () => api<{ logs: string }>("/api/logs/system?lines=200"),
     refetchInterval: 5000,
+    enabled: showSystemLogs,
   });
   const services = useQuery<ServiceItem[]>({
     queryKey: ["logs-services"],
@@ -537,18 +537,27 @@ function LogsPage() {
 
   return (
     <>
-      <div className="grid gap-6 2xl:grid-cols-[1.15fr,0.85fr]">
-        <Panel title="System Logs" subtitle="Journalctl-backed system journal">
-          <SectionHeader title="System Journal" subtitle="Filter recent entries by severity or text" refresh={() => systemLogs.refetch()} />
-          <div className="mb-4 grid gap-3 lg:grid-cols-[180px,1fr]">
-            <input value={severity} onChange={(event) => setSeverity(event.target.value)} placeholder="Severity e.g. err" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search logs" className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          </div>
-          <ErrorBanner error={systemLogs.error} />
-          <pre className="max-h-[34rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{systemLogs.data?.logs ?? ""}</pre>
-        </Panel>
+      <Panel title="Logs" subtitle="Open system and service journal views from responsive cards">
+        <SectionHeader title="Log Browser" subtitle="Click a card to open responsive log popups instead of crowding the page" refresh={() => services.refetch()} />
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => setShowSystemLogs(true)}
+            className="min-h-[5rem] rounded-2xl border border-rose-500/35 bg-gradient-to-br from-rose-500/18 via-rose-500/10 to-transparent px-4 py-4 text-left text-white transition hover:border-rose-400/55 hover:bg-rose-500/20"
+          >
+            <div className="text-sm font-semibold">System Logs</div>
+            <div className="mt-2 text-xs text-rose-100/80">Open the full journalctl-backed system log viewer.</div>
+          </button>
+          <button
+            type="button"
+            onClick={() => services.refetch()}
+            className="min-h-[5rem] rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-left text-white transition hover:border-white/20 hover:bg-white/10"
+          >
+            <div className="text-sm font-semibold">Refresh Services</div>
+            <div className="mt-2 text-xs text-slate-400">Reload the list of active services before opening logs.</div>
+          </button>
+        </div>
         <Panel title="Running Services" subtitle="Click a service card to open its logs in a popup">
-          <SectionHeader title="Service Browser" subtitle="Only active services are listed here for quick access" refresh={() => services.refetch()} />
           <ErrorBanner error={services.error} />
           <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
             {runningServices.length} running services
@@ -571,7 +580,20 @@ function LogsPage() {
             ) : null}
           </div>
         </Panel>
-      </div>
+      </Panel>
+      <Modal
+        open={showSystemLogs}
+        onClose={() => setShowSystemLogs(false)}
+        title="System Logs"
+        subtitle="Responsive system journal popup"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <Pill tone="danger">system</Pill>
+          <ActionButton onClick={() => systemLogs.refetch()} className="bg-white/5 text-white hover:bg-white/10">Refresh logs</ActionButton>
+        </div>
+        <ErrorBanner error={systemLogs.error} />
+        <pre className="max-h-[60vh] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs leading-6 text-slate-300">{systemLogs.data?.logs ?? "Loading system logs..."}</pre>
+      </Modal>
       <Modal
         open={Boolean(selectedService)}
         onClose={() => setSelectedService(null)}
