@@ -1,22 +1,56 @@
 # Igris
 
-Igris is a self-hosted Ubuntu server manager with a web dashboard for system overview, services, packages, logs, processes, firewall rules, users, and safe file operations.
+> **Self-hosted server manager for modern Linux infrastructure**
 
-## Real Features
+Igris is a self-hosted server management platform for Ubuntu and Debian systems.  
+It combines a web dashboard with a CLI so you can manage users, services, packages, firewall rules, and system operations from one place.
 
-- FastAPI backend with cookie auth and Argon2 password hashing
-- React dashboard served by the backend after production build
-- Real system overview data from the host
-- Real `systemctl` service management
-- Real `apt` package search and package operations
-- Real `journalctl` logs
-- Real process inspection and termination
-- Real `ufw` firewall actions
-- Real user management with `useradd`, `usermod`, `gpasswd`, and `chpasswd`
-- Safe file browsing and text editing under common admin roots
-- Setup wizard that writes config, initializes SQLite, installs the systemd unit, and starts the service
+<p align="center">
+  <img src="public/igris.png" alt="Igris Dashboard Preview" width="100%" />
+</p>
 
-## Install
+<p align="center">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-111827?style=for-the-badge">
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge"></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian-f97316?style=for-the-badge">
+  <img alt="Backend" src="https://img.shields.io/badge/backend-FastAPI-059669?style=for-the-badge">
+  <img alt="Frontend" src="https://img.shields.io/badge/frontend-React%2019-0f172a?style=for-the-badge">
+</p>
+
+---
+
+## ✨ Features
+
+- `🖥️` **Web dashboard** for day-to-day server operations
+- `⌨️` **CLI tool** for setup and admin workflows
+- `👥` **User management** for Linux accounts, passwords, and groups
+- `⚙️` **Service control** powered by `systemd`
+- `🛡️` **Firewall management** with UFW integration
+- `📦` **Package management** using `apt`
+- `📈` **System overview** for host visibility
+- `📝` **Logs, processes, and diagnostics** for troubleshooting
+- `📁` **Safe file browsing and text editing** under common admin paths
+- `🔐` **Cookie auth and Argon2 password hashing** for dashboard access
+
+---
+
+## 🧠 Why Igris
+
+Managing Linux servers usually means jumping between shell commands, config files, firewall rules, package managers, and service logs.
+
+Igris brings those workflows into one clean interface without taking control away from you.
+
+| Traditional Server Management | With Igris |
+| --- | --- |
+| Scattered commands across multiple tools | Unified dashboard + CLI |
+| Repetitive admin tasks | Guided setup and common admin actions |
+| Harder onboarding for teams | Cleaner, more approachable operations |
+| Limited visibility without manual checks | System overview, logs, and controls in one place |
+| Context switching between terminal and panels | One operational surface |
+
+---
+
+## ⚙️ Installation
 
 ```bash
 git clone https://github.com/hasib9797/igris
@@ -25,47 +59,19 @@ sudo ./install.sh
 sudo igris --setup
 ```
 
-## Access The Dashboard
+---
 
-After setup finishes, open:
+## 🚀 Usage
+
+### Open the Dashboard
+
+After setup, access Igris in your browser:
 
 ```text
-http://SERVER_IP:2511
+http://YOUR_SERVER_IP:2511
 ```
 
-The setup wizard prints the detected URL at the end.
-
-## What `install.sh` Does
-
-- installs Ubuntu dependencies:
-  - `python3`
-  - `python3-pip`
-  - `python3-venv`
-  - `nodejs`
-  - `npm`
-  - `ufw`
-- builds the frontend with `npm install` and `npm run build`
-- installs runtime files into `/usr/lib/igris`
-- creates a global `/usr/bin/igris` command
-- creates `/etc/igris` and `/var/lib/igris` if needed
-- copies a default config if one does not already exist
-
-## What `igris --setup` Does
-
-- asks for the dashboard admin username
-- asks for the dashboard password
-- hashes the password with Argon2
-- generates a session secret
-- writes `/etc/igris/config.yaml`
-- initializes `/var/lib/igris/database.db`
-- installs `/etc/systemd/system/igris.service`
-- installs `/etc/ufw/applications.d/igris`
-- optionally runs `ufw allow <port>/tcp`
-- runs `systemctl daemon-reload`
-- runs `systemctl enable igris.service`
-- runs `systemctl start igris.service`
-
-## Useful Commands
+### CLI Examples
 
 ```bash
 igris --setup
@@ -73,55 +79,82 @@ igris status
 igris reset-admin
 ```
 
-## Troubleshooting
-
-Check service status:
+### Helpful System Commands
 
 ```bash
 sudo systemctl status igris.service
-```
-
-Read service logs:
-
-```bash
 sudo journalctl -u igris.service -n 200 --no-pager
-```
-
-Verify the config file:
-
-```bash
-sudo cat /etc/igris/config.yaml
-```
-
-Verify the installed runtime:
-
-```bash
-ls -la /usr/lib/igris
-```
-
-If the dashboard does not load, make sure the port is open:
-
-```bash
 sudo ufw status
 ```
 
-## Uninstall
+---
 
-Keep config and data:
+## 🖥️ Dashboard Preview
 
-```bash
-sudo ./uninstall.sh
-```
+<p align="center">
+  <img src="public/dashboard.png" alt="Igris dashboard screenshot" width="92%" />
+</p>
 
-Remove config and data too:
 
-```bash
-sudo ./uninstall.sh --purge
-```
+---
 
-## Development Notes
+## 📦 Tech Stack
 
-- Runtime config path: `/etc/igris/config.yaml`
-- Runtime data path: `/var/lib/igris`
-- Install root: `/usr/lib/igris`
-- Service unit: `/etc/systemd/system/igris.service`
+| Layer | Technology |
+| --- | --- |
+| Backend | Python, FastAPI |
+| Frontend | React 19, Vite, TypeScript, Tailwind CSS |
+| Auth | Cookie-based auth, Argon2 password hashing |
+| Service Management | systemd |
+| Firewall | UFW |
+| Packages | apt |
+| Data | SQLite |
+| API / Runtime | Uvicorn, Pydantic, SQLAlchemy, psutil |
+| Target OS | Ubuntu, Debian |
+
+---
+
+## 🔐 Security
+
+- Self-hosted deployment with local infrastructure ownership
+- Secure admin setup and password hashing with Argon2
+- Cookie-based dashboard authentication
+- Permission-aware operations for system-level actions
+- Config and runtime data stored on the host under `/etc/igris` and `/var/lib/igris`
+
+---
+
+## 🛠️ Roadmap
+
+- [ ] AI assistant for guided server actions
+- [ ] Docker and container lifecycle management
+- [ ] Multi-server control from one dashboard
+- [ ] Plugin system for extensibility
+- [ ] Alerting and deeper observability
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome.
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Open a pull request
+
+For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## 📄 License
+
+This project is licensed under the [MIT License](LICENSE).
+
+---
+
+## ⭐ Support
+
+If Igris helps you manage your infrastructure faster, safer, or with less friction, give the repo a star.
+
+It helps the project grow and makes future development easier to sustain.
