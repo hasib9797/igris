@@ -11,7 +11,6 @@ from backend.app.config import AppConfig
 
 MAILER_BASE_URL = "https://konoha-mailer.vercel.app"
 MAILER_API_PATH = "/api/mail/send/write"
-MAILER_FROM_NAME = "Igris Alerts"
 MAILER_KEY_PATH = Path(__file__).resolve().parents[3] / "public" / ".konoha-mailer-key"
 
 
@@ -73,7 +72,6 @@ def send_email_notification(
         "subject": subject,
         "html": html_body or build_alert_html(title=subject, summary=text_body, details=text_body),
         "text": text_body,
-        "fromName": MAILER_FROM_NAME,
         "tags": ["igris", "alert"],
     }
 
