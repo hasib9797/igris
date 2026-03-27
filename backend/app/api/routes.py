@@ -51,6 +51,7 @@ from backend.app.services.modules import processes as process_service
 from backend.app.services.modules import services as systemd_service
 from backend.app.services.modules import tasks as task_service
 from backend.app.services.modules import users as user_service
+from backend.app.services.notifications import build_alert_html, send_email_notification
 from backend.app.services.overview import get_system_health, get_system_overview
 from backend.app.utils.audit import log_audit
 
@@ -538,9 +539,17 @@ def alerts(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_d
 
 @router.post("/alerts/test", response_model=MessageResponse)
 def alerts_test(user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
-    alert_service.create_alert(db, level="warning", message="Igris test alert", source="manual")
+    message = "Igris test alert"
+    alert_service.create_alert(db, level="warning", message=message, source="manual")
+    send_email_notification(
+        get_config(),
+        subject="Igris alert: test email",
+        text_body=message,
+        html_body=build_alert_html(title="Test alert", summary=message, details="This is a manual test email from the Igris dashboard."),
+        require_ready=True,
+    )
     log_audit(db, actor=user.username, action="alerts.test")
-    return MessageResponse(message="Test alert created")
+    return MessageResponse(message="Test alert created and email sent")
 
 
 @router.get("/settings")

@@ -23,4 +23,3 @@ packaging/debian/*.substvars
 packaging/debian/*.debhelper
 backend/data/
 tmp/
-public/.konoha-mailer-key

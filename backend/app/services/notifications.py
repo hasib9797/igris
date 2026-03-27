@@ -51,12 +51,21 @@ def send_email_notification(
     subject: str,
     text_body: str,
     html_body: str | None = None,
+    require_ready: bool = False,
 ) -> None:
-    if not config.email.enabled or not config.email.recipient:
+    if not config.email.enabled:
+        if require_ready:
+            raise RuntimeError("Email alerts are disabled in Igris settings")
+        return
+    if not config.email.recipient:
+        if require_ready:
+            raise RuntimeError("No alert email address is configured")
         return
 
     api_key = _load_mailer_api_key()
     if not api_key:
+        if require_ready:
+            raise RuntimeError(f"Mailer API key file not found at {MAILER_KEY_PATH}")
         return
 
     payload = {
@@ -82,3 +91,5 @@ def send_email_notification(
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"Mailer request failed with status {exc.code}: {body}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Mailer request failed: {exc.reason}") from exc

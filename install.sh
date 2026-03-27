@@ -11,6 +11,8 @@ INSTALL_DIR="/usr/lib/igris"
 CONFIG_DIR="/etc/igris"
 DATA_DIR="/var/lib/igris"
 BIN_PATH="/usr/bin/igris"
+MAILER_KEY_PATH="${INSTALL_DIR}/public/.konoha-mailer-key"
+MAILER_KEY_BACKUP=""
 
 log() {
   echo "[IGRIS] $1"
@@ -50,6 +52,10 @@ popd >/dev/null
 
 log "Installing backend..."
 install -d "${INSTALL_DIR}" "${CONFIG_DIR}" "${DATA_DIR}"
+if [[ -f "${MAILER_KEY_PATH}" ]]; then
+  MAILER_KEY_BACKUP="$(mktemp)"
+  cp "${MAILER_KEY_PATH}" "${MAILER_KEY_BACKUP}"
+fi
 rm -rf "${INSTALL_DIR}/backend" "${INSTALL_DIR}/cli" "${INSTALL_DIR}/scripts" "${INSTALL_DIR}/frontend" "${INSTALL_DIR}/packaging" "${INSTALL_DIR}/public" "${INSTALL_DIR}/venv"
 
 cp -a "${REPO_ROOT}/backend" "${INSTALL_DIR}/backend"
@@ -57,6 +63,9 @@ cp -a "${REPO_ROOT}/cli" "${INSTALL_DIR}/cli"
 cp -a "${REPO_ROOT}/scripts" "${INSTALL_DIR}/scripts"
 cp -a "${REPO_ROOT}/packaging" "${INSTALL_DIR}/packaging"
 cp -a "${REPO_ROOT}/public" "${INSTALL_DIR}/public"
+if [[ -f "${MAILER_KEY_BACKUP}" && ! -f "${INSTALL_DIR}/public/.konoha-mailer-key" ]]; then
+  cp "${MAILER_KEY_BACKUP}" "${INSTALL_DIR}/public/.konoha-mailer-key"
+fi
 install -d "${INSTALL_DIR}/frontend"
 cp -a "${REPO_ROOT}/frontend/dist" "${INSTALL_DIR}/frontend/dist"
 
@@ -80,6 +89,9 @@ if [[ ! -f "${CONFIG_DIR}/config.yaml" ]]; then
 fi
 
 log "Done."
+if [[ -n "${MAILER_KEY_BACKUP}" ]]; then
+  rm -f "${MAILER_KEY_BACKUP}"
+fi
 echo ""
 echo "Igris has been installed to ${INSTALL_DIR}."
 echo "Next step:"
