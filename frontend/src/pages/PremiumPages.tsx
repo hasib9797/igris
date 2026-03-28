@@ -591,19 +591,6 @@ export function IntegrationsPage() {
 export function GuidePage() {
   const sections = [
     {
-      title: "Table Of Contents",
-      body: [
-        "1. Platform foundations and first login",
-        "2. Daily operator workflow",
-        "3. Core operations modules",
-        "4. AI and command guidance",
-        "5. Application discovery, deployments, and public exposure",
-        "6. Incidents, explain, scan, and topology",
-        "7. Monitoring, alerts, and integrations",
-        "8. CLI reference and production habits",
-      ],
-    },
-    {
       title: "Platform Foundations And First Login",
       body: [
         "Install Igris on an Ubuntu or Debian server, then run the setup wizard as root. The setup flow prepares admin access, dashboard binding, monitoring, and alert behavior.",
@@ -686,28 +673,50 @@ export function GuidePage() {
       code: "Useful CLI set:\nigris help\nigris doctor\nigris overview\nigris health\nigris logs 300 igris.service\nigris services failed\nigris packages upgradable\nigris backup ./igris-backup",
     },
   ];
+  const [activeSection, setActiveSection] = useState(0);
+  const currentSection = sections[activeSection];
 
   return (
     <Panel title="Guide" subtitle="Advanced A-to-Z handbook for every major Igris feature with professional usage patterns and production guidance">
       <SectionHeader title="Igris Handbook" subtitle="Learn the platform like an operator: setup, workflows, recovery paths, examples, and production habits." />
-      <div className="grid gap-6 xl:grid-cols-[0.55fr,1fr]">
-        <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <MetricCard label="Chapters" value={String(sections.length)} />
+        <MetricCard label="Best For" value="Operators" accent="from-sky-500/25 to-transparent" />
+        <MetricCard label="Coverage" value="A to Z" accent="from-emerald-500/25 to-transparent" />
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[340px,minmax(0,1fr)]">
+        <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5 xl:sticky xl:top-6 xl:self-start">
           <h3 className="font-display text-2xl text-white">Table Of Contents</h3>
-          <p className="mt-3 text-sm leading-6 text-slate-400">Use this handbook as a guided operating manual for Igris, not just a feature list. Each section is written to help with real server work.</p>
-          <div className="mt-4 space-y-2 text-sm text-slate-300">
+          <p className="mt-3 text-sm leading-6 text-slate-400">Navigate the handbook section by section. The active chapter opens on the right for focused reading without breaking the dashboard layout.</p>
+          <div className="mt-4 grid gap-2">
             {sections.map((section, index) => (
-              <a key={section.title} href={`#guide-${index + 1}`} className="block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 transition hover:bg-white/10">
-                {index + 1}. {section.title}
-              </a>
+              <button
+                key={section.title}
+                type="button"
+                onClick={() => setActiveSection(index)}
+                className={`rounded-2xl border px-4 py-3 text-left text-sm transition ${activeSection === index ? "border-ember-400/35 bg-ember-500/15 text-white" : "border-white/10 bg-black/20 text-slate-300 hover:bg-white/10"}`}
+              >
+                <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Chapter {index + 1}</div>
+                <div className="mt-1 font-medium">{section.title}</div>
+              </button>
             ))}
           </div>
         </div>
-        <div className="space-y-6">
-          {sections.map((section, index) => (
-            <div key={section.title} id={`guide-${index + 1}`}>
-              <GuideBlock title={`${index + 1}. ${section.title}`} body={section.body} code={section.code} />
+        <div className="min-w-0 space-y-6">
+          <div className="rounded-[1.75rem] border border-sky-400/20 bg-sky-500/10 p-5">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-[0.22em] text-sky-100/70">Current Chapter</div>
+                <h3 className="mt-3 font-display text-3xl text-white">{activeSection + 1}. {currentSection.title}</h3>
+              </div>
+              <Pill tone="success">Operator Handbook</Pill>
             </div>
-          ))}
+          </div>
+          <GuideBlock title={currentSection.title} body={currentSection.body} code={currentSection.code} />
+          <div className="flex flex-wrap gap-3">
+            <ActionButton onClick={() => setActiveSection((current) => Math.max(0, current - 1))} disabled={activeSection === 0} className="bg-white/5 text-white hover:bg-white/10">Previous</ActionButton>
+            <ActionButton onClick={() => setActiveSection((current) => Math.min(sections.length - 1, current + 1))} disabled={activeSection === sections.length - 1}>Next</ActionButton>
+          </div>
         </div>
       </div>
     </Panel>
