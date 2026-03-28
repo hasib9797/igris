@@ -13,12 +13,13 @@ def explain_server(db: Session) -> dict:
     overview = get_system_overview()
     apps = applications.list_apps(db)
     incident_items = incidents.list_incidents(db)
+    open_incidents = [item for item in incident_items if item["status"] == "open"]
     open_ports = network_service.get_ports()
     firewall = firewall_service.ufw_status()
     public_apps = [app for app in apps if app.get("exposure_status") == "public"]
     recommendations: list[str] = []
-    if incident_items:
-        recommendations.append(f"There are {len([item for item in incident_items if item['status'] == 'open'])} open incidents worth reviewing first.")
+    if open_incidents:
+        recommendations.append(f"There are {len(open_incidents)} open incidents worth reviewing first.")
     if overview["pending_updates"]:
         recommendations.append(f"{len(overview['pending_updates'])} package updates are available.")
     if not public_apps:

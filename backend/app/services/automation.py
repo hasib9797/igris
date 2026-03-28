@@ -25,6 +25,7 @@ def _utc_now() -> str:
 
 def _emit_event(event: MonitorEvent, *, email_body: str | None = None) -> None:
     config = get_config()
+    created = False
     with get_session_factory()() as db:
         created = alert_service.create_alert_once(
             db,
@@ -45,11 +46,12 @@ def _emit_event(event: MonitorEvent, *, email_body: str | None = None) -> None:
         except Exception as exc:
             logger.warning("Failed to send Igris email notification: %s", exc)
         try:
-            integration_service.dispatch_event(
-                db,
-                f"incident.{event.source}",
-                {"title": event.subject, "message": event.message, "severity": event.level, "source": event.source},
-            )
+            with get_session_factory()() as db:
+                integration_service.dispatch_event(
+                    db,
+                    f"incident.{event.source}",
+                    {"title": event.subject, "message": event.message, "severity": event.level, "source": event.source},
+                )
         except Exception as exc:
             logger.warning("Failed to send integration notification: %s", exc)
 

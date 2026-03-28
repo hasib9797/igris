@@ -89,6 +89,18 @@ function SectionHeader({ title, subtitle, refresh }: { title: string; subtitle: 
   );
 }
 
+function GuideBlock({ title, body, code }: { title: string; body: string[]; code?: string }) {
+  return (
+    <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+      <h3 className="font-display text-2xl text-white">{title}</h3>
+      <div className="mt-4 space-y-3 text-sm leading-7 text-slate-300">
+        {body.map((item) => <p key={item}>{item}</p>)}
+      </div>
+      {code ? <pre className="mt-4 overflow-auto rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-emerald-100">{code}</pre> : null}
+    </div>
+  );
+}
+
 export function AIAssistantPage() {
   const history = useQuery<AssistantHistoryItem[]>({ queryKey: ["assistant-history"], queryFn: () => api<AssistantHistoryItem[]>("/api/premium/assistant/history"), staleTime: 5000, refetchInterval: 10000 });
   const [prompt, setPrompt] = useState("Why is my app not reachable?");
@@ -197,11 +209,15 @@ export function ApplicationsPage() {
   const [sslMode, setSslMode] = useState("letsencrypt");
   const [preview, setPreview] = useState<{ nginx_config: string; commands: string[] } | null>(null);
   const [actionError, setActionError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function refreshApps() {
+    setActionError("");
+    setNotice("");
     try {
       await api("/api/premium/applications/refresh", { method: "POST" });
       await apps.refetch();
+      setNotice("Application inventory refreshed.");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Unable to refresh applications");
     }
@@ -209,6 +225,8 @@ export function ApplicationsPage() {
 
   async function previewExposure() {
     if (!selected || !domain.trim()) return;
+    setActionError("");
+    setNotice("");
     try {
       const response = await api<{ nginx_config: string; commands: string[] }>("/api/premium/exposure/preview", { method: "POST", body: JSON.stringify({ app_id: selected.id, domain, ssl_mode: sslMode, open_firewall: true }) });
       setPreview(response);
@@ -217,11 +235,50 @@ export function ApplicationsPage() {
     }
   }
 
+  async function applyExposure() {
+    if (!selected || !domain.trim()) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setActionError("");
+    setNotice("");
+    try {
+      await api("/api/premium/exposure/apply", {
+        method: "POST",
+        body: JSON.stringify({ app_id: selected.id, domain, ssl_mode: sslMode, open_firewall: true, confirm_password: confirmPassword }),
+      });
+      setNotice(`Public exposure applied for ${selected.name}.`);
+      await apps.refetch();
+      setSelected(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to apply exposure");
+    }
+  }
+
+  async function removeExposure() {
+    if (!selected) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setActionError("");
+    setNotice("");
+    try {
+      await api("/api/premium/exposure/remove", {
+        method: "POST",
+        body: JSON.stringify({ app_id: selected.id, confirm_password: confirmPassword }),
+      });
+      setNotice(`Public exposure removed for ${selected.name}.`);
+      await apps.refetch();
+      setSelected(null);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to remove exposure");
+    }
+  }
+
   return (
     <>
       <Panel title="Applications" subtitle="Smart app detection across services, ports, runtimes, and working directories">
         <SectionHeader title="Detected Applications" subtitle="Igris scans live processes and service units to map actual apps running on the host" refresh={refreshApps} />
         <ErrorBanner error={apps.error || actionError} />
+        {notice ? <Notice message={notice} /> : null}
         <div className="grid gap-4 xl:grid-cols-2">
           {(apps.data ?? []).map((app) => (
             <button key={app.id} type="button" onClick={() => { setSelected(app); setDomain(app.public_domain || ""); setPreview(null); }} className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5 text-left transition hover:bg-white/10">
@@ -233,13 +290,18 @@ export function ApplicationsPage() {
               <h3 className="mt-4 font-display text-2xl text-white">{app.name}</h3>
               <p className="mt-2 text-sm text-slate-400">{app.path}</p>
               <div className="mt-4 flex flex-wrap gap-2 text-sm text-slate-300"><span>Runtime: {app.runtime}</span><span>Ports: {app.ports.length ? app.ports.join(", ") : "none"}</span></div>
+              {app.public_domain ? <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">{app.public_domain}</div> : null}
             </button>
           ))}
         </div>
       </Panel>
-      <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.name ?? "Application"} subtitle={selected ? `${selected.app_type} • ${selected.runtime} • ${selected.path}` : undefined}>
+      <Modal open={Boolean(selected)} onClose={() => setSelected(null)} title={selected?.name ?? "Application"} subtitle={selected ? `${selected.app_type} | ${selected.runtime} | ${selected.path}` : undefined}>
         {selected ? (
           <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-200">Ports: {selected.ports.length ? selected.ports.join(", ") : "none detected"}</div>
+              <div className="rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-200">Service: {selected.service_name || "unmanaged"}</div>
+            </div>
             <div className="grid gap-4 md:grid-cols-[1fr,220px,auto]">
               <input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="app.example.com" className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white" />
               <select value={sslMode} onChange={(event) => setSslMode(event.target.value)} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white">
@@ -253,8 +315,13 @@ export function ApplicationsPage() {
               <>
                 <pre className="overflow-auto rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-xs text-emerald-100">{preview.nginx_config}</pre>
                 <div className="space-y-2 text-sm text-slate-300">{preview.commands.map((command) => <div key={command}>{command}</div>)}</div>
+                <div className="flex flex-wrap gap-3">
+                  <ActionButton onClick={applyExposure}>Apply Exposure</ActionButton>
+                  {selected.public_domain ? <ActionButton onClick={removeExposure} className="bg-white/5 text-white hover:bg-white/10">Remove Current Exposure</ActionButton> : null}
+                </div>
               </>
             ) : null}
+            {!preview && selected.public_domain ? <ActionButton onClick={removeExposure} className="bg-white/5 text-white hover:bg-white/10">Remove Current Exposure</ActionButton> : null}
           </div>
         ) : null}
       </Modal>
@@ -274,6 +341,8 @@ export function DeploymentsPage() {
     event.preventDefault();
     const confirmPassword = askForConfirmation();
     if (!confirmPassword) return;
+    setActionError("");
+    setNotice("");
     try {
       await api("/api/premium/deployments/configure", { method: "POST", body: JSON.stringify({ ...form, port: form.port ? Number(form.port) : null, confirm_password: confirmPassword }) });
       setNotice("Deployment configuration saved.");
@@ -287,6 +356,8 @@ export function DeploymentsPage() {
     if (!selectedAppId) return;
     const confirmPassword = askForConfirmation();
     if (!confirmPassword) return;
+    setActionError("");
+    setNotice("");
     try {
       const response = await api<{ status: string }>("/api/premium/deployments/run", { method: "POST", body: JSON.stringify({ app_id: selectedAppId, confirm_password: confirmPassword }) });
       setNotice(`Deployment ${response.status}.`);
@@ -511,6 +582,132 @@ export function IntegrationsPage() {
         </form>
         <div className="space-y-4 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
           {(integrations.data ?? []).map((item) => <div key={item.id} className="rounded-3xl border border-white/10 bg-black/20 p-4"><div className="flex flex-wrap items-center gap-2"><Pill tone={item.enabled ? "success" : "warning"}>{item.kind}</Pill><div className="text-sm font-medium text-white">{item.name}</div></div><div className="mt-2 break-all text-sm text-slate-400">{item.target_url}</div></div>)}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+export function GuidePage() {
+  const sections = [
+    {
+      title: "Table Of Contents",
+      body: [
+        "1. Platform foundations and first login",
+        "2. Daily operator workflow",
+        "3. Core operations modules",
+        "4. AI and command guidance",
+        "5. Application discovery, deployments, and public exposure",
+        "6. Incidents, explain, scan, and topology",
+        "7. Monitoring, alerts, and integrations",
+        "8. CLI reference and production habits",
+      ],
+    },
+    {
+      title: "Platform Foundations And First Login",
+      body: [
+        "Install Igris on an Ubuntu or Debian server, then run the setup wizard as root. The setup flow prepares admin access, dashboard binding, monitoring, and alert behavior.",
+        "After setup, open the dashboard on your server IP and configured port. The first login should be followed by a quick validation pass across Overview, Services, Alerts, and Settings so you know the service is healthy and the system state looks correct.",
+        "Use the CLI for fast checks and automation-friendly workflows, and use the dashboard for investigation, guided operations, and multi-step management flows.",
+      ],
+      code: "sudo ./install.sh\nsudo igris --setup\nhttp://YOUR_SERVER_IP:2511\nsudo systemctl status igris.service\nigris doctor",
+    },
+    {
+      title: "Daily Operator Workflow",
+      body: [
+        "A strong production routine starts at Overview. Look at CPU, memory, disk, failed services, pending updates, and the AI monitor summary before you begin any change.",
+        "If something looks wrong, move next to Incidents for structured findings, then use Services, Processes, Logs, and Files to drill into the exact failure.",
+        "If an app change is required, use Applications to understand ownership and ports, Deployments to deliver code changes, and Public Exposure controls to publish or remove ingress safely.",
+        "Resolve alerts only after the underlying problem is actually handled. Igris works best when operators treat it as an operational record, not only a control panel.",
+      ],
+      code: "Recommended sequence:\nOverview -> Incidents -> Services/Processes/Logs -> Applications -> Deployments -> Alerts",
+    },
+    {
+      title: "Core Operations Modules",
+      body: [
+        "Overview is the health summary page. Use it to understand the machine quickly: host identity, resource usage, failed services, top processes, and update pressure.",
+        "Services is the systemd control room. Use start, stop, restart, reload, enable, disable, and logs when operating service-managed workloads. Restart is best for full process recycle; reload is best when config changes can be applied without a hard restart.",
+        "Packages manages apt-backed operations. Review upgradable packages before bulk upgrades, and prefer controlled maintenance windows for package-wide changes on important servers.",
+        "Firewall manages UFW with explicit TCP and UDP choice for port rules. Use allow app profile when available, and allow/deny port when you need direct port-level control.",
+        "Users, Files, Processes, and Logs form the main troubleshooting toolkit. Users manages accounts and sudo. Files is the safer config editor and explorer. Processes identifies resource-heavy processes. Logs gives system and service context during failures.",
+      ],
+      code: "Examples:\n- Restart failed unit after log review\n- Open /etc config in Files for quick edit\n- Use Processes to identify CPU spikes\n- Use Logs when failures involve multiple services",
+    },
+    {
+      title: "AI And Command Guidance",
+      body: [
+        "AI Root Assistant is the guided operations surface. Use it when you want a server-aware answer instead of manually piecing together ports, services, logs, and incidents.",
+        "The most effective prompts are concrete and operational. Ask why an app is unreachable, why nginx is failing, what is running on the server, or how to approach a deployment. Avoid vague prompts if you want precise action suggestions.",
+        "When the assistant suggests commands, review the exact command, the reason, and the risk level. Igris keeps a history of assistant actions so you can understand what was proposed or executed later.",
+        "Console complements the assistant. It is an audited command runner with re-auth, explain, safer-command guidance, and recent command recall. It is best for focused commands, not long-lived interactive shells.",
+      ],
+      code: "Good assistant prompts:\n- Why is my app not reachable?\n- Check why nginx is failing\n- Explain what is running on this server\n- Help me deploy this Node app\n\nGood console pattern:\n1. Explain command\n2. Review safer version\n3. Run after confirmation",
+    },
+    {
+      title: "Application Discovery, Deployments, And Public Exposure",
+      body: [
+        "Applications is the smart inventory page. It detects apps from process metadata, service working directories, ports, and project files like package manifests, Python metadata, Docker files, and common startup patterns.",
+        "Use Applications when you inherit a server and need to understand what workloads exist, where they live, which service owns them, and whether they are public or private.",
+        "Deployments is for managed git-backed delivery. Store repo URL, branch, install/build/restart commands, then run the deploy pipeline. On failure, Igris records logs and attempts to roll back to the previous git revision.",
+        "Public Exposure is the nginx-backed publication workflow. Preview config first, confirm domain and SSL mode, then apply. Igris validates nginx before reload and preserves config backups for safer rollback behavior.",
+        "A clean production app workflow is: detect app, confirm service binding, save deployment config, run deployment, verify health, then expose publicly only after the app is stable locally.",
+      ],
+      code: "Recommended app flow:\n1. Applications -> refresh inventory\n2. Deployments -> save repo/build/restart config\n3. Run deploy pipeline\n4. Verify service logs and app port\n5. Exposure preview\n6. Apply exposure",
+    },
+    {
+      title: "Incidents, Explain, Scan, And Topology",
+      body: [
+        "Incidents is the rule-driven event timeline. It currently tracks failed services, crash loops, high CPU, high memory, disk pressure, nginx validation failures, unstable deployments, and exposed apps that do not answer correctly.",
+        "Preview Fix is the safe first move. It shows the commands Igris would run for remediation before you approve execution. This is useful for service restart decisions, nginx reload paths, and resource-pressure investigation.",
+        "Explain My Server is the machine narrative page. Use it when you need to brief someone else, onboard yourself to a server, or decide what deserves attention next.",
+        "Scan & Fix is currently driven through Explain and Incidents. It is best used as a review pass before maintenance or when a host feels unhealthy but the cause is not immediately obvious.",
+        "System Map turns current server facts into a topology-style view across apps, ports, domains, and deployment records. It is especially useful on busy multi-app hosts where ownership and routing are easy to lose track of.",
+      ],
+      code: "High-signal recovery path:\nOverview -> Incidents -> Preview Fix -> Services/Logs -> Explain -> System Map",
+    },
+    {
+      title: "Monitoring, Alerts, And Integrations",
+      body: [
+        "Background monitoring currently watches CPU, memory, disk, failed services, incidents, and application inventory refresh. The AI monitor summary on Overview is the fast version of that operational picture.",
+        "Alerts stores monitor findings, update events, and manual tests. Treat alert resolution as a real operational acknowledgment, not just a UI cleanup action.",
+        "Integrations sends selected events to Discord or generic webhooks. Use this when you want deployment changes, incidents, or exposure updates to be visible outside the dashboard.",
+        "For serious environments, configure at least one external integration and use email alerts if that path is part of your workflow. Igris becomes much more reliable as an operational tool when important changes leave the dashboard and reach your team channel.",
+      ],
+      code: "Recommended alerting pattern:\n1. Keep monitor enabled\n2. Add Discord or webhook integration\n3. Use test alert\n4. Verify delivery path before relying on it in production",
+    },
+    {
+      title: "CLI Reference And Production Habits",
+      body: [
+        "The CLI is best for quick checks, backups, restores, and script-friendly operational work. It is also the fastest way to inspect health when you are already SSHed into the host.",
+        "Use `igris doctor` after install or after big system changes. Use `igris overview` and `igris health` for quick JSON-style state snapshots. Use `igris logs` when you want journal output immediately.",
+        "Before risky changes, use `igris backup` to preserve config and runtime data. For update-related work, use `igris update-check` before `igris --update`.",
+        "Good production habits inside Igris are simple: inspect before changing, preview before applying, verify after changes, and rely on audit history instead of memory alone.",
+      ],
+      code: "Useful CLI set:\nigris help\nigris doctor\nigris overview\nigris health\nigris logs 300 igris.service\nigris services failed\nigris packages upgradable\nigris backup ./igris-backup",
+    },
+  ];
+
+  return (
+    <Panel title="Guide" subtitle="Advanced A-to-Z handbook for every major Igris feature with professional usage patterns and production guidance">
+      <SectionHeader title="Igris Handbook" subtitle="Learn the platform like an operator: setup, workflows, recovery paths, examples, and production habits." />
+      <div className="grid gap-6 xl:grid-cols-[0.55fr,1fr]">
+        <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+          <h3 className="font-display text-2xl text-white">Table Of Contents</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-400">Use this handbook as a guided operating manual for Igris, not just a feature list. Each section is written to help with real server work.</p>
+          <div className="mt-4 space-y-2 text-sm text-slate-300">
+            {sections.map((section, index) => (
+              <a key={section.title} href={`#guide-${index + 1}`} className="block rounded-2xl border border-white/10 bg-black/20 px-4 py-3 transition hover:bg-white/10">
+                {index + 1}. {section.title}
+              </a>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-6">
+          {sections.map((section, index) => (
+            <div key={section.title} id={`guide-${index + 1}`}>
+              <GuideBlock title={`${index + 1}. ${section.title}`} body={section.body} code={section.code} />
+            </div>
+          ))}
         </div>
       </div>
     </Panel>

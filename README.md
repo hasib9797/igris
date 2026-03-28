@@ -1,16 +1,15 @@
 # Igris
 
-> **Self-hosted server manager for modern Linux infrastructure**
+> AI-powered server command center for Ubuntu and Debian
 
-Igris is a self-hosted server management platform for Ubuntu and Debian systems.  
-It combines a web dashboard with a CLI so you can manage users, services, packages, firewall rules, and system operations from one place.
+Igris is a self-hosted server manager built for developers who want a serious operational surface for Linux servers. It combines a web dashboard, audited command workflows, and an admin CLI so you can manage services, users, packages, firewall rules, files, processes, deployments, and alerts from one place.
 
 <p align="center">
-  <img src="public/igris.png" alt="Igris Dashboard Preview" width="100%" />
+  <img src="public/igris.png" alt="Igris Dashboard" width="100%" />
 </p>
 
 <p align="center">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.0.0-111827?style=for-the-badge">
+  <img alt="Version" src="https://img.shields.io/badge/version-2.0.0-111827?style=for-the-badge">
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-2563eb?style=for-the-badge"></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Ubuntu%20%7C%20Debian-f97316?style=for-the-badge">
   <img alt="Backend" src="https://img.shields.io/badge/backend-FastAPI-059669?style=for-the-badge">
@@ -19,44 +18,46 @@ It combines a web dashboard with a CLI so you can manage users, services, packag
 
 ---
 
-## ✨ Features
+## Features
 
-- `🖥️` **Web dashboard** for day-to-day server operations
-- `⌨️` **CLI tool** for setup and admin workflows
-- `🤖` **AI Root Assistant** with server-aware suggestions and safe command previews
-- `🧭` **Smart application detection** across services, ports, and project directories
-- `🚨` **Incident detection and remediation previews** for failures, crash loops, proxy issues, and pressure events
-- `🚀` **Git-based deployments and public exposure workflows** with nginx preview/apply flows
-- `🗺️` **Visual system map** for apps, ports, domains, and deployment relationships
-- `🔔` **Discord and webhook alerts** for deployments, exposure changes, and incidents
-- `👥` **User management** for Linux accounts, passwords, and groups
-- `⚙️` **Service control** powered by `systemd`
-- `🛡️` **Firewall management** with UFW integration
-- `📦` **Package management** using `apt`
-- `📈` **System overview** for host visibility
-- `📝` **Logs, processes, and diagnostics** for troubleshooting
-- `📁` **Safe file browsing and text editing** under common admin paths
-- `🔐` **Cookie auth and Argon2 password hashing** for dashboard access
+- Web dashboard for day-to-day server administration
+- CLI for setup, health checks, updates, logs, tasks, and quick ops
+- AI Root Assistant with server-aware suggestions, dry-run style guidance, and audited action history
+- Smart application detection across service units, processes, working directories, ports, and project files
+- Incident detection for failed services, crash loops, reverse proxy errors, resource pressure, and unstable deployments
+- Git-based deployment workflows with deployment history and rollback-aware failure handling
+- Public exposure workflow with nginx config preview, validation, and removal
+- Visual system map for apps, ports, domains, and deployment relationships
+- Discord and generic webhook integrations for deployment and incident events
+- Service control for `systemd`
+- Package management for `apt`
+- Firewall management for `ufw`
+- User management for local Linux accounts and sudo control
+- File explorer for common admin-safe paths with upload, create, edit, download, and delete actions
+- Process inspection with real-time refresh and signal actions
+- Logs viewer for system and service logs
+- Alert center with monitor, update, and manual alerts
+- Audited console with command explanation and safer-command guidance
 
 ---
 
-## 🧠 Why Igris
+## Why Igris
 
-Managing Linux servers usually means jumping between shell commands, config files, firewall rules, package managers, and service logs.
+Traditional server administration usually means bouncing between SSH sessions, config files, package tools, firewall commands, service logs, and deployment scripts.
 
-Igris brings those workflows into one clean interface without taking control away from you.
+Igris keeps those workflows in one operational surface without hiding what is happening underneath.
 
-| Traditional Server Management | With Igris |
+| Traditional workflow | With Igris |
 | --- | --- |
-| Scattered commands across multiple tools | Unified dashboard + CLI |
-| Repetitive admin tasks | Guided setup and common admin actions |
-| Harder onboarding for teams | Cleaner, more approachable operations |
-| Limited visibility without manual checks | System overview, logs, and controls in one place |
-| Context switching between terminal and panels | One operational surface |
+| Manual shell-heavy context switching | Unified dashboard plus CLI |
+| Ad hoc service and package operations | Structured controls with audit history |
+| Reverse proxy changes by hand | Previewable exposure workflow |
+| App discovery done manually | Smart application detection |
+| Failures discovered late | Monitor, alerts, incidents, and recommendations |
 
 ---
 
-## ⚙️ Installation
+## Installation
 
 ```bash
 git clone https://github.com/hasib9797/igris
@@ -65,27 +66,33 @@ sudo ./install.sh
 sudo igris --setup
 ```
 
----
-
-## 🚀 Usage
-
-### Open the Dashboard
-
-After setup, access Igris in your browser:
+Dashboard default:
 
 ```text
 http://YOUR_SERVER_IP:2511
 ```
 
-### CLI Examples
+---
+
+## Usage
+
+### Useful CLI commands
 
 ```bash
-igris --setup
+igris help
 igris status
-igris reset-admin
+igris health
+igris overview
+igris logs
+igris services failed
+igris packages upgradable
+igris users list
+igris tasks list
+igris update-check
+igris alerts test
 ```
 
-### Helpful System Commands
+### Helpful system commands
 
 ```bash
 sudo systemctl status igris.service
@@ -95,58 +102,80 @@ sudo ufw status
 
 ---
 
-## 🖥️ Dashboard Preview
+## Dashboard Modules
 
-<p align="center">
-  <img src="public/dashboard.png" alt="Igris dashboard screenshot" width="92%" />
-</p>
+Current dashboard modules include:
 
+- Overview
+- AI Assistant
+- Applications
+- Deployments
+- Incidents
+- System Map
+- Explain My Server
+- Integrations
+- Services
+- Packages
+- Firewall
+- Users
+- Tasks
+- Files
+- Processes
+- Logs
+- Alerts
+- Console
 
 ---
 
-## 📦 Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 | --- | --- |
-| Backend | Python, FastAPI |
-| Frontend | React 19, Vite, TypeScript, Tailwind CSS |
-| Auth | Cookie-based auth, Argon2 password hashing |
+| Backend | Python, FastAPI, SQLAlchemy, Pydantic |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS |
+| Data | SQLite |
+| Runtime Inspection | psutil |
 | Service Management | systemd |
 | Firewall | UFW |
-| Packages | apt |
-| Data | SQLite |
-| API / Runtime | Uvicorn, Pydantic, SQLAlchemy, psutil |
+| Package Management | apt |
+| Server Runtime | Uvicorn |
 | Target OS | Ubuntu, Debian |
 
 ---
 
-## 🔐 Security
+## Security
 
-- Self-hosted deployment with local infrastructure ownership
-- Secure admin setup and password hashing with Argon2
 - Cookie-based dashboard authentication
-- Permission-aware operations for system-level actions
-- Config and runtime data stored on the host under `/etc/igris` and `/var/lib/igris`
+- Argon2 password hashing
+- Re-auth for dangerous actions
+- Audit log for sensitive operations
+- Confirmation before destructive or high-impact actions
+- Safe command policy for AI-executed actions
+- Config and runtime data stored locally on the host
 
 ---
 
-## 🛠️ Roadmap
+## Architecture
 
-- [ ] Multi-server control from one dashboard
-- [ ] Deeper plugin runtime loading and frontend injection
-- [ ] Richer terminal session multiplexing
-- [ ] Expanded Cloudflare and SSL automation
-- [ ] Broader app-runtime detection coverage
+The premium architecture and plugin foundation are documented in [docs/premium-architecture.md](docs/premium-architecture.md).
 
----
+## Guide
 
-## 🧱 Premium Architecture
-
-The current premium architecture and plugin foundation are documented in [docs/premium-architecture.md](docs/premium-architecture.md).
+The full A-to-Z product guide is available in [docs/guide.md](docs/guide.md).
 
 ---
 
-## 🤝 Contributing
+## Roadmap
+
+- Multi-server control
+- Deeper plugin runtime loading
+- Richer live terminal session multiplexing
+- Expanded SSL and Cloudflare automation
+- Broader runtime and app detection coverage
+
+---
+
+## Contributing
 
 Contributions are welcome.
 
@@ -155,18 +184,10 @@ Contributions are welcome.
 3. Make your changes
 4. Open a pull request
 
-For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidance.
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the [MIT License](LICENSE).
-
----
-
-## ⭐ Support
-
-If Igris helps you manage your infrastructure faster, safer, or with less friction, give the repo a star.
-
-It helps the project grow and makes future development easier to sustain.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import shutil
 from pathlib import Path
 
@@ -10,6 +12,9 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_config
 from backend.app.models import DeploymentRecord, ManagedApp
 from backend.app.services.command import run_command
+
+
+DOMAIN_PATTERN = re.compile(r"^(?=.{1,253}$)([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[A-Za-z]{2,63}$")
 
 
 def _metadata(app: ManagedApp) -> dict:
@@ -98,13 +103,16 @@ def run_deployment(db: Session, app_id: int) -> dict:
     metadata = _metadata(app).get("deploy", {})
     if not app.repo_url:
         raise ValueError(f"{app.name} does not have a repo configured")
+    if not (app_path / ".git").exists():
+        raise ValueError(f"{app.path} is not a git repository")
 
     before_revision = run_command(["git", "-C", str(app_path), "rev-parse", "HEAD"], timeout=20)
     current_revision = before_revision.stdout.strip() if before_revision.returncode == 0 else ""
     logs: list[str] = []
+    quoted_path = shlex.quote(app.path)
 
     def _step(command: str) -> None:
-        result = run_command(["/bin/bash", "-lc", f"cd '{app.path}' && {command}"], timeout=900)
+        result = run_command(["/bin/bash", "-lc", f"cd {quoted_path} && {command}"], timeout=900)
         logs.append(f"$ {command}\n{result.stdout}{result.stderr}")
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip() or f"Command failed: {command}")
@@ -144,6 +152,9 @@ def build_exposure_preview(db: Session, app_id: int, domain: str, port: int | No
     app = db.scalar(select(ManagedApp).where(ManagedApp.id == app_id))
     if app is None:
         raise FileNotFoundError(f"Application {app_id} was not found")
+    normalized_domain = domain.strip().lower()
+    if not DOMAIN_PATTERN.match(normalized_domain):
+        raise ValueError("Enter a valid domain or subdomain")
     ports = []
     try:
         ports = json.loads(app.ports_json or "[]")
@@ -153,7 +164,7 @@ def build_exposure_preview(db: Session, app_id: int, domain: str, port: int | No
     upstream = f"http://127.0.0.1:{target_port}"
     server_block = [
         "server {",
-        f"    server_name {domain};",
+        f"    server_name {normalized_domain};",
         "    location / {",
         f"        proxy_pass {upstream};",
         "        proxy_set_header Host $host;",
@@ -165,19 +176,19 @@ def build_exposure_preview(db: Session, app_id: int, domain: str, port: int | No
     ]
     commands = [
         "nginx -t",
-        f"ln -sf {_config_paths(domain)[0]} {_config_paths(domain)[1]}",
+        f"ln -sf {_config_paths(normalized_domain)[0]} {_config_paths(normalized_domain)[1]}",
         "systemctl reload nginx",
     ]
     if open_firewall:
         commands.insert(0, "ufw allow 'Nginx Full'")
     if ssl_mode == "letsencrypt":
-        commands.append(f"certbot --nginx -d {domain}")
+        commands.append(f"certbot --nginx -d {normalized_domain}")
     elif ssl_mode == "cloudflare":
         commands.append("Cloudflare mode selected: DNS token will be used if configured.")
     return {
         "app_id": app.id,
         "app_name": app.name,
-        "domain": domain,
+        "domain": normalized_domain,
         "port": target_port,
         "ssl_mode": ssl_mode,
         "open_firewall": open_firewall,
@@ -188,28 +199,52 @@ def build_exposure_preview(db: Session, app_id: int, domain: str, port: int | No
 
 def apply_exposure(db: Session, app_id: int, domain: str, port: int | None, ssl_mode: str, open_firewall: bool) -> dict:
     preview = build_exposure_preview(db, app_id, domain, port, ssl_mode, open_firewall)
-    available, enabled = _config_paths(domain)
+    available, enabled = _config_paths(preview["domain"])
     backup_dir = Path(get_config().deploy.backup_dir)
     backup_dir.mkdir(parents=True, exist_ok=True)
+    previous_available_backup = backup_dir / f"{available.name}.bak"
+    previous_enabled_target: str | None = None
     if available.exists():
-        shutil.copy2(available, backup_dir / f"{available.name}.bak")
+        shutil.copy2(available, previous_available_backup)
     available.parent.mkdir(parents=True, exist_ok=True)
     enabled.parent.mkdir(parents=True, exist_ok=True)
     available.write_text(preview["nginx_config"] + "\n", encoding="utf-8")
+    if enabled.exists() or enabled.is_symlink():
+        if enabled.is_symlink():
+            try:
+                previous_enabled_target = str(enabled.resolve())
+            except OSError:
+                previous_enabled_target = None
+        enabled.unlink()
+    enabled.symlink_to(available)
     if open_firewall:
         run_command(["ufw", "allow", "Nginx Full"], timeout=30)
     test = run_command(["nginx", "-t"], timeout=30)
     if test.returncode != 0:
+        if enabled.exists() or enabled.is_symlink():
+            enabled.unlink()
+        if previous_available_backup.exists():
+            shutil.copy2(previous_available_backup, available)
+        else:
+            if available.exists():
+                available.unlink()
+        if previous_enabled_target:
+            enabled.symlink_to(previous_enabled_target)
         raise RuntimeError(test.stderr.strip() or test.stdout.strip() or "nginx validation failed")
-    if enabled.exists() or enabled.is_symlink():
-        enabled.unlink()
-    enabled.symlink_to(available)
     reload_result = run_command(["systemctl", "reload", "nginx"], timeout=30)
     if reload_result.returncode != 0:
+        if enabled.exists() or enabled.is_symlink():
+            enabled.unlink()
+        if previous_available_backup.exists():
+            shutil.copy2(previous_available_backup, available)
+        if previous_enabled_target:
+            enabled.symlink_to(previous_enabled_target)
+            run_command(["nginx", "-t"], timeout=30)
+            run_command(["systemctl", "reload", "nginx"], timeout=30)
         raise RuntimeError(reload_result.stderr.strip() or reload_result.stdout.strip() or "nginx reload failed")
     app = db.scalar(select(ManagedApp).where(ManagedApp.id == app_id))
     assert app is not None
-    app.public_domain = domain
+    app.public_domain = preview["domain"]
     app.exposure_status = "public"
     db.commit()
     return preview | {"status": "applied"}
@@ -222,11 +257,36 @@ def remove_exposure(db: Session, app_id: int) -> dict:
     if not app.public_domain:
         return {"status": "noop", "message": "Application is already private"}
     available, enabled = _config_paths(app.public_domain)
+    backup_dir = Path(get_config().deploy.backup_dir)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    available_backup = backup_dir / f"{available.name}.remove.bak"
+    previous_enabled_target: str | None = None
+    if available.exists():
+        shutil.copy2(available, available_backup)
+    if enabled.is_symlink():
+        try:
+            previous_enabled_target = str(enabled.resolve())
+        except OSError:
+            previous_enabled_target = None
     for path in (enabled, available):
         if path.exists() or path.is_symlink():
             path.unlink()
-    run_command(["nginx", "-t"], timeout=30).ensure_success("nginx validation failed")
-    run_command(["systemctl", "reload", "nginx"], timeout=30).ensure_success("nginx reload failed")
+    test_result = run_command(["nginx", "-t"], timeout=30)
+    if test_result.returncode != 0:
+        if available_backup.exists():
+            shutil.copy2(available_backup, available)
+        if previous_enabled_target:
+            enabled.symlink_to(previous_enabled_target)
+        raise RuntimeError(test_result.stderr.strip() or test_result.stdout.strip() or "nginx validation failed")
+    reload_result = run_command(["systemctl", "reload", "nginx"], timeout=30)
+    if reload_result.returncode != 0:
+        if available_backup.exists():
+            shutil.copy2(available_backup, available)
+        if previous_enabled_target:
+            enabled.symlink_to(previous_enabled_target)
+            run_command(["nginx", "-t"], timeout=30)
+            run_command(["systemctl", "reload", "nginx"], timeout=30)
+        raise RuntimeError(reload_result.stderr.strip() or reload_result.stdout.strip() or "nginx reload failed")
     domain = app.public_domain
     app.public_domain = ""
     app.exposure_status = "private"

@@ -1,16 +1,16 @@
 import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, BellRing, Blocks, Bot, FolderTree, GitBranch, ListTodo, Package2, PlugZap, Radar, RefreshCw, ScrollText, Server, Shield, Sparkles, TerminalSquare, Users, Workflow, X } from "lucide-react";
+import { Activity, BellRing, Blocks, BookOpen, Bot, FolderTree, GitBranch, ListTodo, Package2, PlugZap, Radar, RefreshCw, ScrollText, Server, Shield, Sparkles, TerminalSquare, Users, Workflow, X } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
 import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
-import { AIAssistantPage, ApplicationsPage, DeploymentsPage, ExplainPage, IncidentsPage, IntegrationsPage, SystemMapPage } from "./pages/PremiumPages";
+import { AIAssistantPage, ApplicationsPage, DeploymentsPage, ExplainPage, GuidePage, IncidentsPage, IntegrationsPage, SystemMapPage } from "./pages/PremiumPages";
 
-type ModuleKey = "overview" | "assistant" | "applications" | "deployments" | "incidents" | "system-map" | "explain" | "integrations" | "services" | "packages" | "firewall" | "users" | "tasks" | "files" | "processes" | "logs" | "alerts" | "console";
+type ModuleKey = "overview" | "assistant" | "applications" | "deployments" | "incidents" | "system-map" | "explain" | "integrations" | "guide" | "services" | "packages" | "firewall" | "users" | "tasks" | "files" | "processes" | "logs" | "alerts" | "console";
 type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
 type PackageSearchItem = { name: string; description: string };
 type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
@@ -52,6 +52,7 @@ const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }>
   { key: "system-map", label: "System Map", icon: Workflow },
   { key: "explain", label: "Explain", icon: Sparkles },
   { key: "integrations", label: "Integrations", icon: PlugZap },
+  { key: "guide", label: "Guide", icon: BookOpen },
   { key: "services", label: "Services", icon: Server },
   { key: "packages", label: "Packages", icon: Package2 },
   { key: "firewall", label: "Firewall", icon: Shield },
@@ -1494,6 +1495,8 @@ function Dashboard() {
                   ? <ExplainPage />
                   : current === "integrations"
                     ? <IntegrationsPage />
+                    : current === "guide"
+                      ? <GuidePage />
       : current === "services"
         ? <ServicesPage />
         : current === "packages"
