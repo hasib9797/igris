@@ -44,7 +44,7 @@ def create_app() -> FastAPI:
                 admin.password_hash = config.auth.password_hash
                 session.commit()
 
-    app = FastAPI(title="Igris", version="1.0.0")
+    app = FastAPI(title="Igris", version="2.0.0")
     app.state.shutdown_event = asyncio.Event()
     app.state.background_task = None
     app.add_middleware(

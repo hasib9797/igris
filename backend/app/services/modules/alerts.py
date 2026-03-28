@@ -44,3 +44,22 @@ def create_alert_once(
         return None
     return create_alert(db, level=level, message=message, source=source)
 
+
+def resolve_alert(db: Session, alert_id: int) -> AlertRecord:
+    alert = db.get(AlertRecord, alert_id)
+    if not alert:
+        raise ValueError("Alert not found")
+    alert.resolved = True
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
+def clear_resolved_alerts(db: Session) -> int:
+    resolved_alerts = list(db.scalars(select(AlertRecord).where(AlertRecord.resolved.is_(True))).all())
+    count = len(resolved_alerts)
+    for alert in resolved_alerts:
+        db.delete(alert)
+    db.commit()
+    return count
+

@@ -123,6 +123,13 @@ def service_restart(name: str, payload: ActionRequest, user: AdminUser = Depends
     return MessageResponse(message=f"Restarted {name}")
 
 
+@router.post("/services/{name}/reload", response_model=MessageResponse)
+def service_reload(name: str, payload: ActionRequest, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
+    _dangerous(db, user.username, payload.confirm_password, "services.reload", name)
+    systemd_service.service_action(name, "reload")
+    return MessageResponse(message=f"Reloaded {name}")
+
+
 @router.post("/services/{name}/enable", response_model=MessageResponse)
 def service_enable(name: str, payload: ActionRequest, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
     _dangerous(db, user.username, payload.confirm_password, "services.enable", name)
@@ -173,6 +180,13 @@ def package_update_index(payload: ActionRequest, user: AdminUser = Depends(get_c
     _dangerous(db, user.username, payload.confirm_password, "packages.update-index")
     package_service.package_action("", "update-index")
     return MessageResponse(message="Package index updated")
+
+
+@router.post("/packages/upgrade-all", response_model=MessageResponse)
+def package_upgrade_all(payload: ActionRequest, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
+    _dangerous(db, user.username, payload.confirm_password, "packages.upgrade-all")
+    package_service.package_action("", "upgrade-all")
+    return MessageResponse(message="All upgradable packages were upgraded")
 
 
 @router.get("/packages/upgradable")
@@ -550,6 +564,20 @@ def alerts_test(user: AdminUser = Depends(get_current_user), db: Session = Depen
     )
     log_audit(db, actor=user.username, action="alerts.test")
     return MessageResponse(message="Test alert created and email sent")
+
+
+@router.post("/alerts/{alert_id}/resolve", response_model=MessageResponse)
+def alerts_resolve(alert_id: int, user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
+    alert_service.resolve_alert(db, alert_id)
+    log_audit(db, actor=user.username, action="alerts.resolve", target=str(alert_id))
+    return MessageResponse(message=f"Alert {alert_id} resolved")
+
+
+@router.post("/alerts/clear-resolved", response_model=MessageResponse)
+def alerts_clear_resolved(user: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> MessageResponse:
+    removed = alert_service.clear_resolved_alerts(db)
+    log_audit(db, actor=user.username, action="alerts.clear_resolved", target=str(removed))
+    return MessageResponse(message=f"Removed {removed} resolved alert(s)")
 
 
 @router.get("/settings")

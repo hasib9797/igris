@@ -306,7 +306,7 @@ function ServicesPage() {
                     <td className="px-4 py-4"><Pill tone={service.active === "active" ? "success" : service.active === "failed" ? "danger" : "warning"}>{service.active}/{service.sub}</Pill></td>
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
-                        {["start", "stop", "restart", "enable", "disable"].map((action) => (
+                        {["start", "stop", "restart", "reload", "enable", "disable"].map((action) => (
                           <ActionButton key={action} onClick={() => runAction(service.name, action)} className="bg-white/5 text-white hover:bg-white/10">{action}</ActionButton>
                         ))}
                       </div>
@@ -391,6 +391,23 @@ function PackagesPage() {
     }
   }
 
+  async function upgradeAll() {
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setBusy("upgrade-all");
+    setActionError("");
+    setNotice("");
+    try {
+      await api("/api/packages/upgrade-all", { method: "POST", body: JSON.stringify({ confirm_password: confirmPassword }) });
+      setNotice("All upgradable packages were upgraded.");
+      await Promise.all([installed.refetch(), upgradable.refetch(), searchResults.refetch()]);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Package upgrade failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
   function submitSearch(event: FormEvent) {
     event.preventDefault();
     setSearchTerm(query.trim());
@@ -407,7 +424,10 @@ function PackagesPage() {
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search for a package by name" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-ember-500/60" />
           <ActionButton type="submit">Search</ActionButton>
         </form>
-        <ActionButton type="button" onClick={updateIndex} className="bg-white/5 text-white hover:bg-white/10">{busy === "update-index" ? "Updating..." : "Refresh package index"}</ActionButton>
+        <div className="flex flex-wrap gap-3">
+          <ActionButton type="button" onClick={updateIndex} className="bg-white/5 text-white hover:bg-white/10">{busy === "update-index" ? "Updating..." : "Refresh package index"}</ActionButton>
+          <ActionButton type="button" onClick={upgradeAll}>{busy === "upgrade-all" ? "Upgrading..." : "Upgrade all"}</ActionButton>
+        </div>
       </div>
       <div className="mb-5 flex flex-wrap gap-3">
         <button type="button" onClick={() => setMode("installed")} className={`rounded-2xl px-4 py-2.5 text-sm transition ${mode === "installed" ? "bg-ember-500 text-white" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>Installed packages</button>
@@ -493,14 +513,14 @@ function ProcessesPage() {
     [processes.data],
   );
 
-  async function killProcess(pid: number) {
+  async function killProcess(pid: number, signal: "TERM" | "KILL") {
     const confirmPassword = askForConfirmation();
     if (!confirmPassword) return;
     setNotice("");
     setActionError("");
     try {
-      await api("/api/processes/kill", { method: "POST", body: JSON.stringify({ pid, signal: "TERM", confirm_password: confirmPassword }) });
-      setNotice(`Sent TERM to PID ${pid}.`);
+      await api("/api/processes/kill", { method: "POST", body: JSON.stringify({ pid, signal, confirm_password: confirmPassword }) });
+      setNotice(`Sent ${signal} to PID ${pid}.`);
       await processes.refetch();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Process action failed");
@@ -531,7 +551,12 @@ function ProcessesPage() {
                 <td className="px-4 py-3">{formatPercent(item.memory_percent)}</td>
                 <td className="px-4 py-3">{item.username}</td>
                 <td className="px-4 py-3"><Pill tone={item.status === "running" ? "success" : "neutral"}>{item.status}</Pill></td>
-                <td className="px-4 py-3"><ActionButton onClick={() => killProcess(item.pid)} className="bg-white/5 text-white hover:bg-white/10">Terminate</ActionButton></td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2">
+                    <ActionButton onClick={() => killProcess(item.pid, "TERM")} className="bg-white/5 text-white hover:bg-white/10">TERM</ActionButton>
+                    <ActionButton onClick={() => killProcess(item.pid, "KILL")} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">KILL</ActionButton>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -977,6 +1002,30 @@ function AlertsPage() {
     }
   }
 
+  async function resolveAlert(alertId: number) {
+    setNotice("");
+    setActionError("");
+    try {
+      const response = await api<{ message: string }>(`/api/alerts/${alertId}/resolve`, { method: "POST" });
+      setNotice(response.message);
+      await alerts.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to resolve alert");
+    }
+  }
+
+  async function clearResolvedAlerts() {
+    setNotice("");
+    setActionError("");
+    try {
+      const response = await api<{ message: string }>("/api/alerts/clear-resolved", { method: "POST" });
+      setNotice(response.message);
+      await alerts.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to clear resolved alerts");
+    }
+  }
+
   return (
     <Panel title="Alerts" subtitle="Server monitor, update watch, and manual alert history">
       <SectionHeader title="Alert Center" subtitle="Review server health warnings, update notices, and email-triggered events" refresh={() => alerts.refetch()} />
@@ -985,6 +1034,7 @@ function AlertsPage() {
       {notice ? <Notice message={notice} /> : null}
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <ActionButton onClick={createTestAlert}>Create Test Alert</ActionButton>
+        <ActionButton onClick={clearResolvedAlerts} className="bg-white/5 text-white hover:bg-white/10">Clear Resolved</ActionButton>
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">{alerts.data?.length ?? 0} recent alerts</div>
       </div>
       <div className="space-y-3">
@@ -995,10 +1045,14 @@ function AlertsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Pill tone={item.level === "critical" ? "danger" : item.level === "warning" ? "warning" : "success"}>{item.level}</Pill>
                   <Pill tone="neutral">{item.source}</Pill>
+                  {item.resolved ? <Pill tone="success">resolved</Pill> : <Pill tone="warning">open</Pill>}
                 </div>
                 <p className="mt-3 text-sm leading-6 text-slate-100">{item.message}</p>
               </div>
-              <div className="text-xs text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Unknown time"}</div>
+              <div className="flex flex-col items-start gap-3 lg:items-end">
+                <div className="text-xs text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "Unknown time"}</div>
+                {!item.resolved ? <ActionButton onClick={() => resolveAlert(item.id)} className="bg-white/5 text-white hover:bg-white/10">Resolve</ActionButton> : null}
+              </div>
             </div>
           </div>
         ))}
@@ -1121,8 +1175,8 @@ function Dashboard() {
       <div className="mx-auto grid min-h-screen w-full max-w-[1920px] gap-6 px-3 py-3 lg:grid-cols-[260px,minmax(0,1fr)] xl:grid-cols-[280px,minmax(0,1fr)] sm:px-4 sm:py-4 lg:px-6 lg:py-6">
         <aside className="animate-igris-rise rounded-[2rem] border border-white/10 bg-black/35 p-4 shadow-panel backdrop-blur-xl sm:p-5">
           <div className="mb-8 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
-            <p className="text-xs uppercase tracking-[0.35em] text-ember-300">Igris</p>
-            <h1 className="mt-4 font-display text-3xl text-white">Server Command</h1>
+            <p className="text-xs uppercase tracking-[0.35em] text-ember-300">Igris v2</p>
+            <h1 className="mt-4 font-display text-3xl text-white">Server Command v2</h1>
             <p className="mt-3 text-sm text-slate-400">A sharper control surface for live Ubuntu operations.</p>
           </div>
           <nav className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">

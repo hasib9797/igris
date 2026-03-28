@@ -30,6 +30,8 @@ def package_action(package: str | None, action: str) -> str:
     env["DEBIAN_FRONTEND"] = "noninteractive"
     if action == "update-index":
         return run_command(["apt-get", "update"], timeout=600, env=env).ensure_success("Unable to update package index").stdout
+    if action == "upgrade-all":
+        return run_command(["apt-get", "upgrade", "-y"], timeout=1800, env=env).ensure_success("Unable to upgrade installed packages").stdout
     validated = _validate_package_name(package or "")
     commands = {
         "install": ["apt-get", "install", "-y", validated],

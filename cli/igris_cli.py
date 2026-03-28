@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import os
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ DEFAULT_UPDATE_BRANCH = "main"
 INSTALL_ROOT = Path("/usr/lib/igris")
 BIN_PATH = Path("/usr/bin/igris")
 SYSTEMD_SERVICE_PATH = Path("/etc/systemd/system/igris.service")
+APP_VERSION = "2.0.0"
 
 
 class CliError(RuntimeError):
@@ -30,7 +32,7 @@ class CliError(RuntimeError):
 def print_banner(title: str, subtitle: str = "") -> None:
     line = "=" * 68
     print(line)
-    print(f"IGRIS  {title}")
+    print(f"IGRIS v{APP_VERSION}  {title}")
     if subtitle:
         print(subtitle)
     print(line)
@@ -84,6 +86,12 @@ def status() -> int:
     return completed.returncode
 
 
+def help_command() -> int:
+    print_banner("HELP", "Showing available Igris commands")
+    build_parser().print_help()
+    return 0
+
+
 def doctor() -> int:
     print_banner("DOCTOR", "Checking critical runtime dependencies")
     checks = {
@@ -102,6 +110,103 @@ def doctor() -> int:
         return 0
     print_error("Doctor found missing requirements.")
     return 1
+
+
+def config_show() -> int:
+    print_banner("CONFIG", "Current runtime configuration summary")
+    config = _import_callable("backend.app.config", "load_config")(CONFIG_PATH if CONFIG_PATH.exists() else None)
+    summary = {
+        "version": APP_VERSION,
+        "config_path": str(CONFIG_PATH),
+        "data_dir": str(DATA_DIR),
+        "server": {"host": config.server.host, "port": config.server.port},
+        "auth": {"admin_username": config.auth.admin_username, "admin_email": config.auth.admin_email, "email_alerts": config.email.enabled},
+        "modules": {
+            "docker": config.modules.docker,
+            "files": config.modules.files,
+            "alerts": config.modules.alerts,
+            "tasks": config.modules.tasks,
+            "terminal": config.system.allow_terminal,
+        },
+        "updates": {"auto_update": config.updates.auto_update, "repo_url": config.updates.repo_url, "branch": config.updates.branch},
+    }
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def health() -> int:
+    print_banner("HEALTH", "System health snapshot")
+    get_health = _import_callable("backend.app.services.overview", "get_system_health")
+    print(json.dumps(get_health(), indent=2))
+    return 0
+
+
+def overview() -> int:
+    print_banner("OVERVIEW", "System overview snapshot")
+    get_overview = _import_callable("backend.app.services.overview", "get_system_overview")
+    print(json.dumps(get_overview(), indent=2))
+    return 0
+
+
+def users_list() -> int:
+    print_banner("USERS", "Listing local Linux users")
+    list_users = _import_callable("backend.app.services.modules.users", "list_users")
+    print(json.dumps(list_users(), indent=2))
+    return 0
+
+
+def logs(lines: int = 200, service: str = "igris.service") -> int:
+    print_banner("LOGS", f"Showing the last {lines} lines for {service}")
+    completed = subprocess.run(["journalctl", "-u", service, "-n", str(lines), "--no-pager"], check=False)
+    return completed.returncode
+
+
+def _parse_logs_args(subcommand: str | None, value: str | None) -> tuple[int, str]:
+    if not subcommand:
+        return 200, "igris.service"
+    if subcommand.isdigit():
+        return int(subcommand), value or "igris.service"
+    return 200, subcommand
+
+
+def update_check() -> int:
+    print_banner("UPDATE CHECK", "Checking the remote repository for new Igris revisions")
+    fetch_remote_revision = _import_callable("backend.app.services.updates", "fetch_remote_revision")
+    load_runtime_state = _import_callable("backend.app.services.updates", "load_runtime_state")
+    config = _import_callable("backend.app.config", "get_config")()
+    remote_revision = fetch_remote_revision(config)
+    if not remote_revision:
+        print_error("Unable to fetch the remote revision.")
+        return 1
+    state = load_runtime_state(config)
+    last_seen = state.get("last_seen_remote_revision")
+    print(json.dumps({"version": APP_VERSION, "repo": config.updates.repo_url, "branch": config.updates.branch, "remote_revision": remote_revision, "last_seen_remote_revision": last_seen, "update_available": bool(last_seen and remote_revision != last_seen)}, indent=2))
+    return 0
+
+
+def alerts_test() -> int:
+    print_banner("ALERT TEST", "Creating and emailing a test alert")
+    _require_root("igris alerts test")
+    get_config = _import_callable("backend.app.config", "get_config")
+    init_database = _import_callable("backend.app.db.session", "init_database")
+    get_session_factory = _import_callable("backend.app.db.session", "get_session_factory")
+    create_alert = _import_callable("backend.app.services.modules.alerts", "create_alert")
+    build_alert_html = _import_callable("backend.app.services.notifications", "build_alert_html")
+    send_email_notification = _import_callable("backend.app.services.notifications", "send_email_notification")
+    init_database()
+    config = get_config()
+    message = "Igris CLI test alert"
+    with get_session_factory()() as db:
+        create_alert(db, level="warning", message=message, source="cli")
+    send_email_notification(
+        config,
+        subject="Igris alert: CLI test email",
+        text_body=message,
+        html_body=build_alert_html(title="CLI test alert", summary=message, details="This test email was triggered from the Igris CLI."),
+        require_ready=True,
+    )
+    print_success("Test alert created and email sent.")
+    return 0
 
 
 def reset_admin() -> int:
@@ -250,11 +355,11 @@ def update() -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="igris", description="Igris Ubuntu server manager")
+    parser = argparse.ArgumentParser(prog="igris", description="Igris v2 Ubuntu server manager")
     parser.add_argument("--setup", action="store_true", help="run the initial setup wizard")
     parser.add_argument("--update", action="store_true", help="fetch and install the latest Igris build")
     parser.add_argument("--restart", action="store_true", help="restart igris.service")
-    parser.add_argument("command", nargs="?", help="status | doctor | reset-admin | service | open-port | close-port | backup | restore | update | restart | server")
+    parser.add_argument("command", nargs="?", help="help | status | doctor | config | health | overview | users | logs | alerts | update-check | reset-admin | service | open-port | close-port | backup | restore | update | restart | server")
     parser.add_argument("subcommand", nargs="?")
     parser.add_argument("value", nargs="?")
     return parser
@@ -277,10 +382,27 @@ def main() -> int:
             run_server = _import_callable("backend.entrypoint", "main")
             run_server()
             return 0
+        if args.command == "help":
+            return help_command()
         if args.command == "status":
             return status()
         if args.command == "doctor":
             return doctor()
+        if args.command == "config":
+            return config_show()
+        if args.command == "health":
+            return health()
+        if args.command == "overview":
+            return overview()
+        if args.command == "users" and args.subcommand == "list":
+            return users_list()
+        if args.command == "logs":
+            lines, service = _parse_logs_args(args.subcommand, args.value)
+            return logs(lines, service)
+        if args.command == "update-check":
+            return update_check()
+        if args.command == "alerts" and args.subcommand == "test":
+            return alerts_test()
         if args.command == "reset-admin":
             return reset_admin()
         if args.command == "service" and args.subcommand == "install":
