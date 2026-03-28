@@ -133,7 +133,7 @@ async def run_background_loops(stop_event: asyncio.Event) -> None:
             if config.monitoring.enabled and now - last_monitor_at >= max(60, config.monitoring.interval_seconds):
                 await asyncio.to_thread(run_monitor_cycle)
                 last_monitor_at = now
-            if config.updates.enabled and now - last_update_at >= max(300, config.updates.check_interval_seconds):
+            if config.updates.enabled and now - last_update_at >= max(120, config.updates.check_interval_seconds):
                 await asyncio.to_thread(run_update_cycle)
                 last_update_at = now
         except asyncio.CancelledError:

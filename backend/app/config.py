@@ -81,7 +81,7 @@ class MonitoringConfig:
 class UpdatesConfig:
     enabled: bool = True
     auto_update: bool = False
-    check_interval_seconds: int = 1800
+    check_interval_seconds: int = 120
     repo_url: str = "https://github.com/hasib9797/igris"
     branch: str = "main"
 

@@ -132,6 +132,7 @@ def run_setup() -> None:
     config.monitoring.enabled = enable_monitoring
     config.updates.enabled = True
     config.updates.auto_update = auto_update
+    config.updates.check_interval_seconds = 120
     config.config_path = CONFIG_PATH
     config.data_dir = DATA_DIR
     save_config(config, CONFIG_PATH)

@@ -92,6 +92,11 @@ def help_command() -> int:
     return 0
 
 
+def version_command() -> int:
+    print(f"Igris v{APP_VERSION}")
+    return 0
+
+
 def doctor() -> int:
     print_banner("DOCTOR", "Checking critical runtime dependencies")
     checks = {
@@ -152,6 +157,61 @@ def users_list() -> int:
     print_banner("USERS", "Listing local Linux users")
     list_users = _import_callable("backend.app.services.modules.users", "list_users")
     print(json.dumps(list_users(), indent=2))
+    return 0
+
+
+def packages_upgradable() -> int:
+    print_banner("PACKAGES", "Listing upgradable packages")
+    list_upgradable = _import_callable("backend.app.services.modules.packages", "list_upgradable")
+    print(json.dumps(list_upgradable(), indent=2))
+    return 0
+
+
+def services_failed() -> int:
+    print_banner("FAILED SERVICES", "Listing failed systemd units")
+    get_overview = _import_callable("backend.app.services.overview", "get_system_overview")
+    print(json.dumps(get_overview().get("failed_services", []), indent=2))
+    return 0
+
+
+def files_roots() -> int:
+    print_banner("FILE ROOTS", "Allowed file explorer roots")
+    safe_roots = _import_callable("backend.app.services.modules.files", "SAFE_ROOTS")
+    print(json.dumps([str(item) for item in safe_roots], indent=2))
+    return 0
+
+
+def file_read(path: str) -> int:
+    print_banner("FILE READ", path)
+    read_file = _import_callable("backend.app.services.modules.files", "read_file")
+    result = read_file(path)
+    print(result["content"])
+    return 0
+
+
+def tasks_list() -> int:
+    print_banner("TASKS", "Listing saved Igris tasks")
+    init_database = _import_callable("backend.app.db.session", "init_database")
+    get_session_factory = _import_callable("backend.app.db.session", "get_session_factory")
+    list_tasks_callable = _import_callable("backend.app.services.modules.tasks", "list_tasks")
+    init_database()
+    with get_session_factory()() as db:
+        tasks = list_tasks_callable(db)
+        payload = [{"id": task.id, "name": task.name, "command": task.command, "schedule": task.schedule, "enabled": task.enabled, "created_at": task.created_at.isoformat() if task.created_at else None} for task in tasks]
+    print(json.dumps(payload, indent=2))
+    return 0
+
+
+def tasks_run(task_id: int) -> int:
+    print_banner("TASK RUN", f"Running task {task_id}")
+    _require_root("igris tasks run")
+    init_database = _import_callable("backend.app.db.session", "init_database")
+    get_session_factory = _import_callable("backend.app.db.session", "get_session_factory")
+    run_task_callable = _import_callable("backend.app.services.modules.tasks", "run_task")
+    init_database()
+    with get_session_factory()() as db:
+        output = run_task_callable(db, task_id)
+    print(output)
     return 0
 
 
@@ -361,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--setup", action="store_true", help="run the initial setup wizard")
     parser.add_argument("--update", action="store_true", help="fetch and install the latest Igris build")
     parser.add_argument("--restart", action="store_true", help="restart igris.service")
-    parser.add_argument("command", nargs="?", help="help | status | doctor | config | health | overview | users | logs | alerts | update-check | reset-admin | service | open-port | close-port | backup | restore | update | restart | server")
+    parser.add_argument("command", nargs="?", help="help | version | status | doctor | config | health | overview | users | tasks | packages | services | files | logs | alerts | update-check | reset-admin | service | open-port | close-port | backup | restore | update | restart | server")
     parser.add_argument("subcommand", nargs="?")
     parser.add_argument("value", nargs="?")
     return parser
@@ -386,6 +446,8 @@ def main() -> int:
             return 0
         if args.command == "help":
             return help_command()
+        if args.command == "version":
+            return version_command()
         if args.command == "status":
             return status()
         if args.command == "doctor":
@@ -398,6 +460,20 @@ def main() -> int:
             return overview()
         if args.command == "users" and args.subcommand == "list":
             return users_list()
+        if args.command == "tasks" and args.subcommand == "list":
+            return tasks_list()
+        if args.command == "tasks" and args.subcommand and args.value is None and args.subcommand.isdigit():
+            return tasks_run(int(args.subcommand))
+        if args.command == "tasks" and args.subcommand == "run" and args.value and args.value.isdigit():
+            return tasks_run(int(args.value))
+        if args.command == "packages" and args.subcommand == "upgradable":
+            return packages_upgradable()
+        if args.command == "services" and args.subcommand == "failed":
+            return services_failed()
+        if args.command == "files" and args.subcommand == "roots":
+            return files_roots()
+        if args.command == "files" and args.subcommand == "read" and args.value:
+            return file_read(args.value)
         if args.command == "logs":
             lines, service = _parse_logs_args(args.subcommand, args.value)
             return logs(lines, service)

@@ -43,6 +43,6 @@ monitoring:
 updates:
   enabled: true
   auto_update: false
-  check_interval_seconds: 1800
+  check_interval_seconds: 120
   repo_url: https://github.com/hasib9797/igris
   branch: main

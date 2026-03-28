@@ -1,7 +1,7 @@
-import { FormEvent, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, BellRing, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X } from "lucide-react";
+import { Activity, BellRing, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X, ListTodo } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
@@ -9,11 +9,12 @@ import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
 
-type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "files" | "processes" | "logs" | "alerts" | "console";
+type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "tasks" | "files" | "processes" | "logs" | "alerts" | "console";
 type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
 type PackageSearchItem = { name: string; description: string };
 type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
 type UserItem = { username: string; uid: number; gid: number; home: string; shell: string };
+type TaskItem = { id: number; name: string; command: string; schedule: string; enabled: boolean };
 type ProcessItem = { pid: number; name: string; username: string; cpu_percent: number; memory_percent: number; status: string };
 type FileItem = { path: string; type: "file" | "directory"; size: number; owner: string | null; group: string | null; permissions: string; modified_at: string | null };
 type FileReadResponse = { path: string; content: string; size: number; permissions: string };
@@ -39,12 +40,15 @@ const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }>
   { key: "packages", label: "Packages", icon: Package2 },
   { key: "firewall", label: "Firewall", icon: Shield },
   { key: "users", label: "Users", icon: Users },
+  { key: "tasks", label: "Tasks", icon: ListTodo },
   { key: "files", label: "Files", icon: FolderTree },
   { key: "processes", label: "Processes", icon: Blocks },
   { key: "logs", label: "Logs", icon: ScrollText },
   { key: "alerts", label: "Alerts", icon: BellRing },
   { key: "console", label: "Console", icon: TerminalSquare },
 ];
+
+const FILE_ROOTS = ["/etc", "/var/log", "/home", "/opt", "/srv", "/tmp"];
 
 function formatPercent(value: number) {
   return `${Number(value ?? 0).toFixed(0)}%`;
@@ -850,13 +854,110 @@ function UsersPage() {
   );
 }
 
+function TasksPage() {
+  const tasks = useQuery<TaskItem[]>({
+    queryKey: ["tasks"],
+    queryFn: () => api<TaskItem[]>("/api/tasks"),
+    staleTime: 5000,
+    refetchInterval: 10000,
+  });
+  const [createForm, setCreateForm] = useState({ name: "", command: "", schedule: "manual" });
+  const [notice, setNotice] = useState("");
+  const [actionError, setActionError] = useState("");
+
+  async function createTask(event: FormEvent) {
+    event.preventDefault();
+    setNotice("");
+    setActionError("");
+    try {
+      const response = await api<{ message: string }>("/api/tasks/create", { method: "POST", body: JSON.stringify(createForm) });
+      setNotice(response.message);
+      setCreateForm({ name: "", command: "", schedule: "manual" });
+      await tasks.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Task creation failed");
+    }
+  }
+
+  async function runTask(taskId: number) {
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setNotice("");
+    setActionError("");
+    try {
+      const response = await api<{ message: string }>("/api/tasks/run", { method: "POST", body: JSON.stringify({ id: taskId, confirm_password: confirmPassword }) });
+      setNotice(response.message);
+      await tasks.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Task run failed");
+    }
+  }
+
+  async function deleteTask(taskId: number) {
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) return;
+    setNotice("");
+    setActionError("");
+    try {
+      const response = await api<{ message: string }>("/api/tasks/delete", { method: "POST", body: JSON.stringify({ id: taskId, confirm_password: confirmPassword }) });
+      setNotice(response.message);
+      await tasks.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Task delete failed");
+    }
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-[1.05fr,0.95fr]">
+      <Panel title="Tasks" subtitle="Saved automation commands you can trigger from the dashboard">
+        <SectionHeader title="Task Queue" subtitle="Create lightweight operational runbooks and launch them on demand" refresh={() => tasks.refetch()} />
+        <ErrorBanner error={tasks.error} />
+        {actionError ? <Notice message={actionError} tone="error" /> : null}
+        {notice ? <Notice message={notice} /> : null}
+        <div className="max-h-[38rem] overflow-auto rounded-[1.75rem] border border-white/10">
+          <table className="min-w-full text-left text-sm text-slate-200">
+            <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+              <tr><th className="px-4 py-3">Task</th><th className="px-4 py-3">Schedule</th><th className="px-4 py-3">Command</th><th className="px-4 py-3">Actions</th></tr>
+            </thead>
+            <tbody>
+              {(tasks.data ?? []).map((item) => (
+                <tr key={item.id} className="border-t border-white/5">
+                  <td className="px-4 py-4"><div className="font-medium text-white">{item.name}</div><div className="mt-1 text-xs text-slate-500">ID {item.id}</div></td>
+                  <td className="px-4 py-4"><Pill tone={item.enabled ? "success" : "warning"}>{item.schedule}</Pill></td>
+                  <td className="px-4 py-4"><code className="text-xs text-slate-300">{item.command}</code></td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      <ActionButton onClick={() => runTask(item.id)} className="bg-white/5 text-white hover:bg-white/10">Run</ActionButton>
+                      <ActionButton onClick={() => deleteTask(item.id)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+      <Panel title="Create Task" subtitle="Add a reusable command with a simple schedule label">
+        <form onSubmit={createTask} className="space-y-4">
+          <input value={createForm.name} onChange={(event) => setCreateForm((current) => ({ ...current, name: event.target.value }))} placeholder="Task name" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          <input value={createForm.schedule} onChange={(event) => setCreateForm((current) => ({ ...current, schedule: event.target.value }))} placeholder="manual / nightly / after-deploy" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          <textarea value={createForm.command} onChange={(event) => setCreateForm((current) => ({ ...current, command: event.target.value }))} placeholder="Command to run" className="min-h-[12rem] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
+          <ActionButton type="submit">Create Task</ActionButton>
+        </form>
+      </Panel>
+    </div>
+  );
+}
+
 function FilesPage() {
   const [currentPath, setCurrentPath] = useState("/etc");
   const [selectedFile, setSelectedFile] = useState("");
   const [editorContent, setEditorContent] = useState("");
   const [newDir, setNewDir] = useState("");
+  const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const uploadRef = useRef<HTMLInputElement | null>(null);
   const files = useQuery<FileItem[]>({
     queryKey: ["files", currentPath],
     queryFn: () => api<FileItem[]>(`/api/files/list?path=${encodeURIComponent(currentPath)}`),
@@ -872,6 +973,50 @@ function FilesPage() {
   useEffect(() => {
     if (fileContents.data) setEditorContent(fileContents.data.content);
   }, [fileContents.data]);
+
+  const breadcrumbs = useMemo(() => {
+    const parts = currentPath.split("/").filter(Boolean);
+    const items = [{ label: "/", path: "/" }];
+    let running = "";
+    for (const part of parts) {
+      running += `/${part}`;
+      items.push({ label: part, path: running });
+    }
+    return items;
+  }, [currentPath]);
+
+  const visibleFiles = useMemo(() => {
+    const term = filter.trim().toLowerCase();
+    const items = [...(files.data ?? [])].sort((left, right) => {
+      if (left.type !== right.type) {
+        return left.type === "directory" ? -1 : 1;
+      }
+      return left.path.localeCompare(right.path);
+    });
+    if (!term) return items;
+    return items.filter((item) => item.path.toLowerCase().includes(term));
+  }, [files.data, filter]);
+
+  const selectedMeta = useMemo(() => visibleFiles.find((item) => item.path === selectedFile) ?? null, [visibleFiles, selectedFile]);
+
+  function goToParent() {
+    if (currentPath === "/") return;
+    const normalized = currentPath.replace(/\/+$/, "");
+    const parent = normalized.slice(0, normalized.lastIndexOf("/")) || "/";
+    setCurrentPath(parent);
+    setSelectedFile("");
+    setEditorContent("");
+  }
+
+  function openItem(item: FileItem) {
+    if (item.type === "directory") {
+      setCurrentPath(item.path);
+      setSelectedFile("");
+      setEditorContent("");
+      return;
+    }
+    setSelectedFile(item.path);
+  }
 
   async function writeFile() {
     if (!selectedFile) return;
@@ -923,18 +1068,77 @@ function FilesPage() {
     }
   }
 
+  async function uploadFile(event: ChangeEvent<HTMLInputElement>) {
+    const upload = event.target.files?.[0];
+    if (!upload) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) {
+      event.target.value = "";
+      return;
+    }
+    setNotice("");
+    setActionError("");
+    try {
+      const formData = new FormData();
+      formData.append("upload", upload);
+      await api(`/api/files/upload?path=${encodeURIComponent(`${currentPath.replace(/\/$/, "")}/${upload.name}`)}&confirm_password=${encodeURIComponent(confirmPassword)}`, {
+        method: "POST",
+        body: formData,
+      });
+      setNotice(`Uploaded ${upload.name}.`);
+      await files.refetch();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function downloadSelectedFile() {
+    if (!selectedFile || !fileContents.data) return;
+    const blob = new Blob([fileContents.data.content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = selectedFile.split("/").pop() || "download.txt";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
-      <Panel title="Files" subtitle="Bounded file management for common admin roots">
-        <SectionHeader title="Browser" subtitle="Navigate common system paths and open text files" refresh={() => files.refetch()} />
-        <div className="mb-4 flex gap-3">
-          <input value={currentPath} onChange={(event) => setCurrentPath(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <ActionButton type="button" onClick={() => files.refetch()}>Open</ActionButton>
+      <Panel title="Files" subtitle="Explorer-style system browser for the safe admin roots">
+        <SectionHeader title="Explorer" subtitle="Browse allowed roots like an SFTP client with quick navigation and file operations" refresh={() => files.refetch()} />
+        <div className="mb-4 flex flex-wrap gap-3">
+          {FILE_ROOTS.map((root) => (
+            <button key={root} type="button" onClick={() => { setCurrentPath(root); setSelectedFile(""); setEditorContent(""); }} className={`rounded-2xl px-4 py-2.5 text-sm transition ${currentPath === root ? "bg-ember-500 text-white" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>
+              {root}
+            </button>
+          ))}
         </div>
-        <form onSubmit={createDirectory} className="mb-4 flex gap-3">
-          <input value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="New directory name or path" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">Create Dir</ActionButton>
-        </form>
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            {breadcrumbs.map((crumb) => (
+              <button key={crumb.path} type="button" onClick={() => { setCurrentPath(crumb.path); setSelectedFile(""); setEditorContent(""); }} className={`rounded-xl px-3 py-2 text-sm transition ${crumb.path === currentPath ? "bg-ember-500/18 text-white ring-1 ring-ember-400/35" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>
+                {crumb.label}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-col gap-3 lg:flex-row">
+            <input value={currentPath} onChange={(event) => setCurrentPath(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+            <button type="button" onClick={goToParent} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">Up</button>
+            <ActionButton type="button" onClick={() => files.refetch()}>Open</ActionButton>
+          </div>
+        </div>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr,auto,auto]">
+          <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files and folders" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+          <button type="button" onClick={() => uploadRef.current?.click()} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">Upload File</button>
+          <form onSubmit={createDirectory} className="flex gap-3">
+            <input value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="New directory" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
+            <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">Create Dir</ActionButton>
+          </form>
+        </div>
+        <input ref={uploadRef} type="file" onChange={uploadFile} className="hidden" />
         <ErrorBanner error={files.error} />
         {actionError ? <Notice message={actionError} tone="error" /> : null}
         {notice ? <Notice message={notice} /> : null}
@@ -944,35 +1148,44 @@ function FilesPage() {
               <tr><th className="px-4 py-3">Path</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Size</th><th className="px-4 py-3">Permissions</th><th className="px-4 py-3">Actions</th></tr>
             </thead>
             <tbody>
-              {(files.data ?? []).map((item) => (
-                <tr key={item.path} className="border-t border-white/5">
+              {visibleFiles.map((item) => (
+                <tr key={item.path} className={`border-t border-white/5 ${selectedFile === item.path ? "bg-white/5" : ""}`}>
                   <td className="px-4 py-3">
-                    <button type="button" onClick={() => {
-                      if (item.type === "directory") {
-                        setCurrentPath(item.path);
-                        setSelectedFile("");
-                        setEditorContent("");
-                      } else {
-                        setSelectedFile(item.path);
-                      }
-                    }} className="text-left text-white transition hover:text-ember-300">{item.path}</button>
+                    <button type="button" onClick={() => openItem(item)} className="text-left text-white transition hover:text-ember-300">{item.path}</button>
                   </td>
-                  <td className="px-4 py-3">{item.type}</td>
+                  <td className="px-4 py-3"><Pill tone={item.type === "directory" ? "success" : "neutral"}>{item.type}</Pill></td>
                   <td className="px-4 py-3">{formatBytes(item.size)}</td>
                   <td className="px-4 py-3">{item.permissions}</td>
-                  <td className="px-4 py-3"><ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton></td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {item.type === "directory" ? <ActionButton onClick={() => openItem(item)} className="bg-white/5 text-white hover:bg-white/10">Open</ActionButton> : <ActionButton onClick={() => setSelectedFile(item.path)} className="bg-white/5 text-white hover:bg-white/10">Edit</ActionButton>}
+                      <ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </Panel>
-      <Panel title="Editor" subtitle="Read and write text files with backup safety">
-        <div className="mb-3 text-sm text-slate-400">{selectedFile || "Select a file from the browser"}</div>
+      <Panel title="Inspector & Editor" subtitle="Preview metadata, download, and edit text files with backups">
+        <div className="mb-4 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Selection</div>
+          <div className="mt-3 text-sm text-slate-200">{selectedFile || currentPath}</div>
+          {selectedMeta ? (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Owner: {selectedMeta.owner ?? "unknown"}</div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Group: {selectedMeta.group ?? "unknown"}</div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Permissions: {selectedMeta.permissions}</div>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Modified: {selectedMeta.modified_at ? new Date(selectedMeta.modified_at).toLocaleString() : "unknown"}</div>
+            </div>
+          ) : null}
+        </div>
         <ErrorBanner error={fileContents.error} />
         <textarea value={editorContent} onChange={(event) => setEditorContent(event.target.value)} className="min-h-[30rem] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
         <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
           <ActionButton onClick={writeFile} disabled={!selectedFile}>Save File</ActionButton>
+          <ActionButton onClick={downloadSelectedFile} disabled={!selectedFile || !fileContents.data} className="bg-white/5 text-white hover:bg-white/10">Download</ActionButton>
           {selectedFile ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Backups are written as `*.bak` before overwrite.</div> : null}
         </div>
       </Panel>
@@ -1032,6 +1245,11 @@ function AlertsPage() {
       <ErrorBanner error={alerts.error} />
       {actionError ? <Notice message={actionError} tone="error" /> : null}
       {notice ? <Notice message={notice} /> : null}
+      <div className="mb-4 grid gap-4 md:grid-cols-3">
+        <MetricCard label="Open Alerts" value={String((alerts.data ?? []).filter((item) => !item.resolved).length)} />
+        <MetricCard label="Critical" value={String((alerts.data ?? []).filter((item) => item.level === "critical" && !item.resolved).length)} accent="from-rose-500/25 to-transparent" />
+        <MetricCard label="Resolved" value={String((alerts.data ?? []).filter((item) => item.resolved).length)} accent="from-emerald-500/25 to-transparent" />
+      </div>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <ActionButton onClick={createTestAlert}>Create Test Alert</ActionButton>
         <ActionButton onClick={clearResolvedAlerts} className="bg-white/5 text-white hover:bg-white/10">Clear Resolved</ActionButton>
@@ -1160,6 +1378,8 @@ function Dashboard() {
             ? <FirewallPage />
             : current === "users"
               ? <UsersPage />
+              : current === "tasks"
+                ? <TasksPage />
                 : current === "files"
                   ? <FilesPage />
                   : current === "processes"
