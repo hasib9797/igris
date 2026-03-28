@@ -340,6 +340,8 @@ def update() -> int:
             _run_checked(["systemctl", "start", "igris.service"], error_message="Unable to start igris.service")
             _run_checked(["systemctl", "is-active", "--quiet", "igris.service"], error_message="igris.service is not active after update")
             print_success("Igris updated successfully.")
+            _run_checked(["systemctl", "restart", "igris.service"], error_message="Unable to restart igris.service after update")
+            print_success("igris.service restarted successfully after update.")
             return 0
         except Exception as exc:
             print_error(f"Update failed, restoring previous install: {exc}")
