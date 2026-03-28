@@ -957,6 +957,7 @@ function FilesPage() {
   const [filter, setFilter] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
+  const [showEditor, setShowEditor] = useState(false);
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const files = useQuery<FileItem[]>({
     queryKey: ["files", currentPath],
@@ -1016,6 +1017,7 @@ function FilesPage() {
       return;
     }
     setSelectedFile(item.path);
+    setShowEditor(true);
   }
 
   async function writeFile() {
@@ -1106,90 +1108,133 @@ function FilesPage() {
   }
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
-      <Panel title="Files" subtitle="Explorer-style system browser for the safe admin roots">
-        <SectionHeader title="Explorer" subtitle="Browse allowed roots like an SFTP client with quick navigation and file operations" refresh={() => files.refetch()} />
-        <div className="mb-4 flex flex-wrap gap-3">
-          {FILE_ROOTS.map((root) => (
-            <button key={root} type="button" onClick={() => { setCurrentPath(root); setSelectedFile(""); setEditorContent(""); }} className={`rounded-2xl px-4 py-2.5 text-sm transition ${currentPath === root ? "bg-ember-500 text-white" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>
-              {root}
-            </button>
-          ))}
-        </div>
-        <div className="mb-4 flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {breadcrumbs.map((crumb) => (
-              <button key={crumb.path} type="button" onClick={() => { setCurrentPath(crumb.path); setSelectedFile(""); setEditorContent(""); }} className={`rounded-xl px-3 py-2 text-sm transition ${crumb.path === currentPath ? "bg-ember-500/18 text-white ring-1 ring-ember-400/35" : "border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10"}`}>
-                {crumb.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-col gap-3 lg:flex-row">
-            <input value={currentPath} onChange={(event) => setCurrentPath(event.target.value)} className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-            <button type="button" onClick={goToParent} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">Up</button>
-            <ActionButton type="button" onClick={() => files.refetch()}>Open</ActionButton>
-          </div>
-        </div>
-        <div className="mb-4 grid gap-3 lg:grid-cols-[1fr,auto,auto]">
-          <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter files and folders" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-          <button type="button" onClick={() => uploadRef.current?.click()} className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white transition hover:bg-white/10">Upload File</button>
-          <form onSubmit={createDirectory} className="flex gap-3">
-            <input value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="New directory" className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" />
-            <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">Create Dir</ActionButton>
-          </form>
-        </div>
-        <input ref={uploadRef} type="file" onChange={uploadFile} className="hidden" />
+    <>
+      <Panel title="Files" subtitle="Full explorer-style file manager for the allowed server roots">
+        <SectionHeader title="File Explorer" subtitle="Navigate directories, upload files, create folders, and edit text files from one workspace" refresh={() => files.refetch()} />
         <ErrorBanner error={files.error} />
         {actionError ? <Notice message={actionError} tone="error" /> : null}
         {notice ? <Notice message={notice} /> : null}
-        <div className="max-h-[36rem] overflow-auto rounded-[1.75rem] border border-white/10">
-          <table className="min-w-full text-left text-sm text-slate-200">
-            <thead className="sticky top-0 bg-[#11161d] text-slate-400">
-              <tr><th className="px-4 py-3">Path</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Size</th><th className="px-4 py-3">Permissions</th><th className="px-4 py-3">Actions</th></tr>
-            </thead>
-            <tbody>
-              {visibleFiles.map((item) => (
-                <tr key={item.path} className={`border-t border-white/5 ${selectedFile === item.path ? "bg-white/5" : ""}`}>
-                  <td className="px-4 py-3">
-                    <button type="button" onClick={() => openItem(item)} className="text-left text-white transition hover:text-ember-300">{item.path}</button>
-                  </td>
-                  <td className="px-4 py-3"><Pill tone={item.type === "directory" ? "success" : "neutral"}>{item.type}</Pill></td>
-                  <td className="px-4 py-3">{formatBytes(item.size)}</td>
-                  <td className="px-4 py-3">{item.permissions}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      {item.type === "directory" ? <ActionButton onClick={() => openItem(item)} className="bg-white/5 text-white hover:bg-white/10">Open</ActionButton> : <ActionButton onClick={() => setSelectedFile(item.path)} className="bg-white/5 text-white hover:bg-white/10">Edit</ActionButton>}
-                      <ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton>
-                    </div>
-                  </td>
-                </tr>
+        <div className="grid gap-6 xl:grid-cols-[240px,minmax(0,1fr)]">
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-4">
+            <div className="mb-3 text-xs uppercase tracking-[0.22em] text-slate-500">Roots</div>
+            <div className="space-y-2">
+              {FILE_ROOTS.map((root) => (
+                <button
+                  key={root}
+                  type="button"
+                  onClick={() => {
+                    setCurrentPath(root);
+                    setSelectedFile("");
+                    setEditorContent("");
+                    setShowEditor(false);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm transition ${currentPath === root ? "bg-ember-500/18 text-white ring-1 ring-ember-400/35" : "text-slate-300 hover:bg-white/10"}`}
+                >
+                  <span>{root}</span>
+                  <span className="text-xs text-slate-500">open</span>
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+            <div className="mt-6 text-xs uppercase tracking-[0.22em] text-slate-500">Quick Actions</div>
+            <div className="mt-3 grid gap-2">
+              <button type="button" onClick={goToParent} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white transition hover:bg-white/10">Go Up</button>
+              <button type="button" onClick={() => uploadRef.current?.click()} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white transition hover:bg-white/10">Upload File</button>
+              <button type="button" onClick={() => files.refetch()} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white transition hover:bg-white/10">Refresh</button>
+            </div>
+          </div>
+          <div className="min-w-0 rounded-[1.75rem] border border-white/10 bg-white/5 p-4">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              {breadcrumbs.map((crumb) => (
+                <button
+                  key={crumb.path}
+                  type="button"
+                  onClick={() => {
+                    setCurrentPath(crumb.path);
+                    setSelectedFile("");
+                    setEditorContent("");
+                    setShowEditor(false);
+                  }}
+                  className={`rounded-xl px-3 py-2 text-sm transition ${crumb.path === currentPath ? "bg-ember-500 text-white" : "border border-white/10 bg-black/20 text-slate-300 hover:bg-white/10"}`}
+                >
+                  {crumb.label}
+                </button>
+              ))}
+            </div>
+            <div className="mb-4 grid gap-3 lg:grid-cols-[1.4fr,1fr,auto]">
+              <input value={currentPath} onChange={(event) => setCurrentPath(event.target.value)} className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white" />
+              <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Search in current folder" className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white" />
+              <ActionButton type="button" onClick={() => files.refetch()}>Open</ActionButton>
+            </div>
+            <div className="mb-4 flex flex-col gap-3 lg:flex-row">
+              <form onSubmit={createDirectory} className="flex flex-1 gap-3">
+                <input value={newDir} onChange={(event) => setNewDir(event.target.value)} placeholder="New folder name or path" className="flex-1 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white" />
+                <ActionButton type="submit" className="bg-white/5 text-white hover:bg-white/10">Create Folder</ActionButton>
+              </form>
+              <input ref={uploadRef} type="file" onChange={uploadFile} className="hidden" />
+            </div>
+            <div className="overflow-hidden rounded-[1.5rem] border border-white/10">
+              <div className="max-h-[44rem] overflow-auto">
+                <table className="min-w-full text-left text-sm text-slate-200">
+                  <thead className="sticky top-0 bg-[#11161d] text-slate-400">
+                    <tr><th className="px-4 py-3">Name</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Size</th><th className="px-4 py-3">Owner</th><th className="px-4 py-3">Modified</th><th className="px-4 py-3">Actions</th></tr>
+                  </thead>
+                  <tbody>
+                    {visibleFiles.map((item) => {
+                      const name = item.path.split("/").pop() || item.path;
+                      return (
+                        <tr key={item.path} className={`border-t border-white/5 ${selectedFile === item.path ? "bg-white/5" : ""}`}>
+                          <td className="px-4 py-3">
+                            <button type="button" onClick={() => openItem(item)} className="text-left font-medium text-white transition hover:text-ember-300">{name}</button>
+                            <div className="mt-1 text-xs text-slate-500">{item.path}</div>
+                          </td>
+                          <td className="px-4 py-3"><Pill tone={item.type === "directory" ? "success" : "neutral"}>{item.type}</Pill></td>
+                          <td className="px-4 py-3">{formatBytes(item.size)}</td>
+                          <td className="px-4 py-3">{item.owner ?? "-"}</td>
+                          <td className="px-4 py-3">{item.modified_at ? new Date(item.modified_at).toLocaleString() : "-"}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              {item.type === "directory" ? (
+                                <ActionButton onClick={() => openItem(item)} className="bg-white/5 text-white hover:bg-white/10">Open</ActionButton>
+                              ) : (
+                                <>
+                                  <ActionButton onClick={() => openItem(item)} className="bg-white/5 text-white hover:bg-white/10">Edit</ActionButton>
+                                  <ActionButton onClick={() => { setSelectedFile(item.path); setTimeout(downloadSelectedFile, 0); }} className="bg-white/5 text-white hover:bg-white/10">Download</ActionButton>
+                                </>
+                              )}
+                              <ActionButton onClick={() => deletePath(item.path)} className="bg-rose-500/15 text-rose-100 hover:bg-rose-500/25">Delete</ActionButton>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!visibleFiles.length ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-8 text-center text-slate-400">This folder is empty or no files matched your filter.</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </Panel>
-      <Panel title="Inspector & Editor" subtitle="Preview metadata, download, and edit text files with backups">
-        <div className="mb-4 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
-          <div className="text-xs uppercase tracking-[0.2em] text-slate-500">Selection</div>
-          <div className="mt-3 text-sm text-slate-200">{selectedFile || currentPath}</div>
-          {selectedMeta ? (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Owner: {selectedMeta.owner ?? "unknown"}</div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Group: {selectedMeta.group ?? "unknown"}</div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Permissions: {selectedMeta.permissions}</div>
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Modified: {selectedMeta.modified_at ? new Date(selectedMeta.modified_at).toLocaleString() : "unknown"}</div>
-            </div>
-          ) : null}
+      <Modal open={showEditor && Boolean(selectedFile)} onClose={() => setShowEditor(false)} title={selectedFile.split("/").pop() || "File Editor"} subtitle={selectedFile}>
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Owner: {selectedMeta?.owner ?? "unknown"}</div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Group: {selectedMeta?.group ?? "unknown"}</div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Permissions: {selectedMeta?.permissions ?? "-"}</div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">Modified: {selectedMeta?.modified_at ? new Date(selectedMeta.modified_at).toLocaleString() : "-"}</div>
         </div>
         <ErrorBanner error={fileContents.error} />
-        <textarea value={editorContent} onChange={(event) => setEditorContent(event.target.value)} className="min-h-[30rem] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
-        <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center">
+        <textarea value={editorContent} onChange={(event) => setEditorContent(event.target.value)} className="min-h-[50vh] w-full rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-sm text-slate-100" />
+        <div className="mt-4 flex flex-wrap gap-3">
           <ActionButton onClick={writeFile} disabled={!selectedFile}>Save File</ActionButton>
           <ActionButton onClick={downloadSelectedFile} disabled={!selectedFile || !fileContents.data} className="bg-white/5 text-white hover:bg-white/10">Download</ActionButton>
-          {selectedFile ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">Backups are written as `*.bak` before overwrite.</div> : null}
+          <ActionButton onClick={() => setShowEditor(false)} className="bg-white/5 text-white hover:bg-white/10">Close</ActionButton>
         </div>
-      </Panel>
-    </div>
+      </Modal>
+    </>
   );
 }
 
