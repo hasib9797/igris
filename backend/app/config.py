@@ -87,6 +87,32 @@ class UpdatesConfig:
 
 
 @dataclass
+class AssistantConfig:
+    enabled: bool = True
+    provider: str = "local-heuristic"
+    dry_run_default: bool = True
+    allow_execute: bool = True
+
+
+@dataclass
+class IncidentsConfig:
+    enabled: bool = True
+    interval_seconds: int = 180
+    auto_remediation_rules: list[str] = field(default_factory=list)
+
+
+@dataclass
+class DeployConfig:
+    enabled: bool = True
+    nginx_sites_available: str = "/etc/nginx/sites-available"
+    nginx_sites_enabled: str = "/etc/nginx/sites-enabled"
+    backup_dir: str = "/var/lib/igris/backups"
+    default_ssl_mode: str = "letsencrypt"
+    cloudflare_api_token: str = ""
+    letsencrypt_email: str = ""
+
+
+@dataclass
 class AppConfig:
     server: ServerConfig = field(default_factory=ServerConfig)
     auth: AuthConfig = field(default_factory=AuthConfig)
@@ -96,6 +122,9 @@ class AppConfig:
     email: EmailConfig = field(default_factory=EmailConfig)
     monitoring: MonitoringConfig = field(default_factory=MonitoringConfig)
     updates: UpdatesConfig = field(default_factory=UpdatesConfig)
+    assistant: AssistantConfig = field(default_factory=AssistantConfig)
+    incidents: IncidentsConfig = field(default_factory=IncidentsConfig)
+    deploy: DeployConfig = field(default_factory=DeployConfig)
     config_path: Path = field(default_factory=_default_config_path)
     data_dir: Path = field(default_factory=_default_data_dir)
     audit_log_path: str = field(default_factory=lambda: str(_default_audit_log()))
@@ -133,6 +162,9 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         _merge_dataclass(config.email, payload.get("email"))
         _merge_dataclass(config.monitoring, payload.get("monitoring"))
         _merge_dataclass(config.updates, payload.get("updates"))
+        _merge_dataclass(config.assistant, payload.get("assistant"))
+        _merge_dataclass(config.incidents, payload.get("incidents"))
+        _merge_dataclass(config.deploy, payload.get("deploy"))
     if not config.auth.session_secret:
         config.auth.session_secret = secrets.token_urlsafe(32)
     return config
@@ -150,6 +182,9 @@ def save_config(config: AppConfig, path: str | Path | None = None) -> None:
         "email": asdict(config.email),
         "monitoring": asdict(config.monitoring),
         "updates": asdict(config.updates),
+        "assistant": asdict(config.assistant),
+        "incidents": asdict(config.incidents),
+        "deploy": asdict(config.deploy),
     }
     config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 

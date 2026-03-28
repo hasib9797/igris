@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from backend.app.api.routes import router
+from backend.app.api.routes_premium import router as premium_router
 from backend.app.auth.session import COOKIE_NAME, decode_session
 from backend.app.config import get_config
 from backend.app.db.session import Base, get_engine, get_session_factory, init_database
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.include_router(router)
+    app.include_router(premium_router)
 
     @app.on_event("startup")
     async def start_background_automation() -> None:

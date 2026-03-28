@@ -46,3 +46,23 @@ updates:
   check_interval_seconds: 120
   repo_url: https://github.com/hasib9797/igris
   branch: main
+
+assistant:
+  enabled: true
+  provider: local-heuristic
+  dry_run_default: true
+  allow_execute: true
+
+incidents:
+  enabled: true
+  interval_seconds: 180
+  auto_remediation_rules: []
+
+deploy:
+  enabled: true
+  nginx_sites_available: /etc/nginx/sites-available
+  nginx_sites_enabled: /etc/nginx/sites-enabled
+  backup_dir: /var/lib/igris/backups
+  default_ssl_mode: letsencrypt
+  cloudflare_api_token: ""
+  letsencrypt_email: ""

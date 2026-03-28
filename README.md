@@ -23,6 +23,12 @@ It combines a web dashboard with a CLI so you can manage users, services, packag
 
 - `🖥️` **Web dashboard** for day-to-day server operations
 - `⌨️` **CLI tool** for setup and admin workflows
+- `🤖` **AI Root Assistant** with server-aware suggestions and safe command previews
+- `🧭` **Smart application detection** across services, ports, and project directories
+- `🚨` **Incident detection and remediation previews** for failures, crash loops, proxy issues, and pressure events
+- `🚀` **Git-based deployments and public exposure workflows** with nginx preview/apply flows
+- `🗺️` **Visual system map** for apps, ports, domains, and deployment relationships
+- `🔔` **Discord and webhook alerts** for deployments, exposure changes, and incidents
 - `👥` **User management** for Linux accounts, passwords, and groups
 - `⚙️` **Service control** powered by `systemd`
 - `🛡️` **Firewall management** with UFW integration
@@ -126,11 +132,17 @@ sudo ufw status
 
 ## 🛠️ Roadmap
 
-- [ ] AI assistant for guided server actions
-- [ ] Docker and container lifecycle management
 - [ ] Multi-server control from one dashboard
-- [ ] Plugin system for extensibility
-- [ ] Alerting and deeper observability
+- [ ] Deeper plugin runtime loading and frontend injection
+- [ ] Richer terminal session multiplexing
+- [ ] Expanded Cloudflare and SSL automation
+- [ ] Broader app-runtime detection coverage
+
+---
+
+## 🧱 Premium Architecture
+
+The current premium architecture and plugin foundation are documented in [docs/premium-architecture.md](docs/premium-architecture.md).
 
 ---
 

@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 
 from backend.app.config import clear_config_cache, get_config
 from backend.app.db.session import get_session_factory
+from backend.app.services import applications as application_service
+from backend.app.services import incidents as incident_service
+from backend.app.services import integrations as integration_service
 from backend.app.services.modules import alerts as alert_service
 from backend.app.services.monitoring import MonitorEvent, build_monitor_summary
 from backend.app.services.notifications import build_alert_html, send_email_notification
@@ -41,6 +44,14 @@ def _emit_event(event: MonitorEvent, *, email_body: str | None = None) -> None:
             )
         except Exception as exc:
             logger.warning("Failed to send Igris email notification: %s", exc)
+        try:
+            integration_service.dispatch_event(
+                db,
+                f"incident.{event.source}",
+                {"title": event.subject, "message": event.message, "severity": event.level, "source": event.source},
+            )
+        except Exception as exc:
+            logger.warning("Failed to send integration notification: %s", exc)
 
 
 def run_monitor_cycle() -> None:
@@ -51,6 +62,9 @@ def run_monitor_cycle() -> None:
     summary, events = build_monitor_summary(config)
     for event in events:
         _emit_event(event, email_body=f"{event.message}\n\nSummary: {summary}")
+    with get_session_factory()() as db:
+        incident_service.scan_incidents(db)
+        application_service.refresh_inventory(db)
 
 
 def run_update_cycle() -> None:

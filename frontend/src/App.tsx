@@ -1,15 +1,16 @@
 import { ChangeEvent, FormEvent, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Activity, BellRing, Blocks, FolderTree, Package2, RefreshCw, ScrollText, Server, Shield, TerminalSquare, Users, X, ListTodo } from "lucide-react";
+import { Activity, BellRing, Blocks, Bot, FolderTree, GitBranch, ListTodo, Package2, PlugZap, Radar, RefreshCw, ScrollText, Server, Shield, Sparkles, TerminalSquare, Users, Workflow, X } from "lucide-react";
 import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
 import { useSession } from "./hooks/useSession";
 import type { Overview } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
+import { AIAssistantPage, ApplicationsPage, DeploymentsPage, ExplainPage, IncidentsPage, IntegrationsPage, SystemMapPage } from "./pages/PremiumPages";
 
-type ModuleKey = "overview" | "services" | "packages" | "firewall" | "users" | "tasks" | "files" | "processes" | "logs" | "alerts" | "console";
+type ModuleKey = "overview" | "assistant" | "applications" | "deployments" | "incidents" | "system-map" | "explain" | "integrations" | "services" | "packages" | "firewall" | "users" | "tasks" | "files" | "processes" | "logs" | "alerts" | "console";
 type ServiceItem = { name: string; load: string; active: string; sub: string; description: string };
 type PackageSearchItem = { name: string; description: string };
 type InstalledPackage = { name: string; version: string; installed: boolean; upgradable: boolean };
@@ -20,6 +21,14 @@ type FileItem = { path: string; type: "file" | "directory"; size: number; owner:
 type FileReadResponse = { path: string; content: string; size: number; permissions: string };
 type FirewallStatusResponse = { status: string };
 type AlertItem = { id: number; level: string; message: string; source: string; resolved: boolean; created_at: string | null };
+type ApplicationItem = { id: number; name: string; app_type: string; runtime: string; path: string; status: string; ports: number[]; service_name: string; process_name: string; public_domain: string; exposure_status: string; repo_url: string; branch: string; metadata: Record<string, unknown>; updated_at: string | null };
+type IncidentItem = { id: number; rule_key: string; severity: string; title: string; summary: string; resource_key: string; status: string; suggested_fix: string; auto_remediation_enabled: boolean; action_summary: string; created_at: string | null; updated_at: string | null; resolved_at: string | null };
+type AssistantHistoryItem = { id: number; prompt: string; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; executed_commands: Array<Record<string, unknown>>; status: string; dry_run: boolean; created_at: string | null };
+type AssistantResponse = { id: number; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; context: { explain: { summary: string; recommendations: string[] }; apps: ApplicationItem[]; incidents: IncidentItem[] } & Record<string, unknown> };
+type DeploymentItem = { id: number; app_name: string; repo_url: string; branch: string; revision: string; status: string; deployed_path: string; service_name: string; log_excerpt: string; created_at: string | null };
+type SystemMapResponse = { summary: string; nodes: Array<{ id: string; label: string; kind: string; status?: string; path?: string }>; edges: Array<{ from: string; to: string; label: string }> };
+type IntegrationItem = { id: number; name: string; kind: string; target_url: string; enabled: boolean; events: string[]; headers: Record<string, string>; updated_at: string | null };
+type ExplainResponse = { summary: string; recommendations: string[]; applications: ApplicationItem[]; incidents: IncidentItem[]; open_ports: string[]; firewall: string; memory: Array<{ id: number; key: string; scope: string; value: Record<string, unknown>; updated_at: string | null }>; overview: Overview };
 type FirewallProtocol = "tcp" | "udp";
 type UserCreatePreset = "standard" | "operator" | "admin";
 type SettingsState = {
@@ -36,6 +45,13 @@ type SettingsState = {
 
 const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }> = [
   { key: "overview", label: "Overview", icon: Activity },
+  { key: "assistant", label: "AI Assistant", icon: Bot },
+  { key: "applications", label: "Applications", icon: Sparkles },
+  { key: "deployments", label: "Deployments", icon: GitBranch },
+  { key: "incidents", label: "Incidents", icon: Radar },
+  { key: "system-map", label: "System Map", icon: Workflow },
+  { key: "explain", label: "Explain", icon: Sparkles },
+  { key: "integrations", label: "Integrations", icon: PlugZap },
   { key: "services", label: "Services", icon: Server },
   { key: "packages", label: "Packages", icon: Package2 },
   { key: "firewall", label: "Firewall", icon: Shield },
@@ -1331,6 +1347,8 @@ function ConsolePage() {
   const [running, setRunning] = useState(false);
   const [actionError, setActionError] = useState("");
   const [consoleUnlocked, setConsoleUnlocked] = useState(false);
+  const [recentCommands, setRecentCommands] = useState<string[]>([]);
+  const [commandAnalysis, setCommandAnalysis] = useState<{ summary: string; dangerous: boolean; safer_command: string; next_steps: string[] } | null>(null);
   const settings = useQuery<SettingsState>({
     queryKey: ["console-settings"],
     queryFn: () => api<SettingsState>("/api/settings"),
@@ -1344,6 +1362,7 @@ function ConsolePage() {
     setRunning(true);
     setActionError("");
     setOutput((current) => `${current}\n$ ${trimmed}\n`);
+    setRecentCommands((current) => [trimmed, ...current.filter((item) => item !== trimmed)].slice(0, 8));
     try {
       let response: { command: string; stdout: string; stderr: string; exit_code: number };
       try {
@@ -1381,21 +1400,67 @@ function ConsolePage() {
     setCommand("");
   }
 
+  async function explainCommand() {
+    const trimmed = command.trim();
+    if (!trimmed) return;
+    setActionError("");
+    try {
+      const response = await api<{ summary: string; dangerous: boolean; safer_command: string; next_steps: string[] }>("/api/premium/terminal/explain", {
+        method: "POST",
+        body: JSON.stringify({ command: trimmed }),
+      });
+      setCommandAnalysis(response);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "Unable to explain command");
+    }
+  }
+
   return (
-    <Panel title="Console" subtitle="Authenticated audited command execution without a persistent shell session">
-      <SectionHeader title="Console" subtitle="Commands run on the server and return live output when the command completes." />
+    <Panel title="Console" subtitle="Authenticated audited command execution with AI command safety overlays">
+      <SectionHeader title="Console" subtitle="Commands run on the server and return output after execution, with explain and safer-command guidance." />
       <ErrorBanner error={settings.error} />
       {actionError ? <Notice message={actionError} tone="error" /> : null}
       <div className="mb-4 flex items-center gap-3">
         <Pill tone={settings.data?.allow_terminal ? "success" : "warning"}>{settings.data?.allow_terminal ? "Enabled" : "Disabled"}</Pill>
         <Pill tone={consoleUnlocked ? "success" : "warning"}>{consoleUnlocked ? "Unlocked for 10 min" : "Locked"}</Pill>
-        <div className="text-sm text-slate-400">Persistent shell mode was removed from the dashboard so opening Console can no longer wedge the whole service.</div>
+        <div className="text-sm text-slate-400">Every command stays audited. Use Explain first for safer guidance before you run something sharp.</div>
       </div>
-      <pre className="min-h-[26rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/90 p-4 font-mono text-xs leading-6 text-slate-200">{output}</pre>
-      <form onSubmit={sendCommand} className="mt-4 flex flex-col gap-3 md:flex-row">
-        <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Enter a shell command" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" disabled={!settings.data?.allow_terminal || running} />
-        <ActionButton type="submit" disabled={!settings.data?.allow_terminal || running}>{running ? "Running..." : "Run command"}</ActionButton>
-      </form>
+      <div className="grid gap-6 xl:grid-cols-[1.2fr,0.8fr]">
+        <div>
+          <pre className="min-h-[26rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/90 p-4 font-mono text-xs leading-6 text-slate-200">{output}</pre>
+          <form onSubmit={sendCommand} className="mt-4 flex flex-col gap-3 md:flex-row">
+            <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder="Enter a shell command" className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white" disabled={!settings.data?.allow_terminal || running} />
+            <ActionButton type="button" onClick={explainCommand} className="bg-white/5 text-white hover:bg-white/10">Explain</ActionButton>
+            <ActionButton type="submit" disabled={!settings.data?.allow_terminal || running}>{running ? "Running..." : "Run command"}</ActionButton>
+          </form>
+        </div>
+        <div className="space-y-4">
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+            <h3 className="font-display text-2xl text-white">AI Overlay</h3>
+            {commandAnalysis ? (
+              <>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  <Pill tone={commandAnalysis.dangerous ? "danger" : "success"}>{commandAnalysis.dangerous ? "Dangerous" : "Safe to review"}</Pill>
+                </div>
+                <p className="mt-3 text-sm leading-7 text-slate-300">{commandAnalysis.summary}</p>
+                <pre className="mt-3 overflow-auto rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs text-amber-100">{commandAnalysis.safer_command}</pre>
+                <div className="mt-3 space-y-2 text-sm text-slate-300">{commandAnalysis.next_steps.map((item) => <div key={item}>{item}</div>)}</div>
+              </>
+            ) : <div className="mt-4 text-sm text-slate-300">Explain a command to see risk level, a safer rewrite, and suggested next steps.</div>}
+          </div>
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+            <h3 className="font-display text-2xl text-white">Recent Commands</h3>
+            <div className="mt-4 space-y-3">
+              {recentCommands.map((item) => (
+                <button key={item} type="button" onClick={() => setCommand(item)} className="block w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-left text-sm text-slate-200 transition hover:bg-white/10">
+                  {item}
+                </button>
+              ))}
+              {!recentCommands.length ? <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">No commands run yet in this session.</div> : null}
+            </div>
+          </div>
+        </div>
+      </div>
     </Panel>
   );
 }
@@ -1415,6 +1480,20 @@ function Dashboard() {
   const content =
     current === "overview"
       ? <OverviewPage />
+      : current === "assistant"
+        ? <AIAssistantPage />
+        : current === "applications"
+          ? <ApplicationsPage />
+          : current === "deployments"
+            ? <DeploymentsPage />
+            : current === "incidents"
+              ? <IncidentsPage />
+              : current === "system-map"
+                ? <SystemMapPage />
+                : current === "explain"
+                  ? <ExplainPage />
+                  : current === "integrations"
+                    ? <IntegrationsPage />
       : current === "services"
         ? <ServicesPage />
         : current === "packages"

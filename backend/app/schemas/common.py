@@ -152,3 +152,73 @@ class FileInfo(BaseModel):
 
 class GenericRecord(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssistantQueryRequest(BaseModel):
+    prompt: str
+    dry_run: bool = True
+
+
+class AssistantExecuteRequest(BaseModel):
+    prompt: str
+    command: str
+    confirm_password: str | None = None
+    dry_run: bool = False
+
+
+class IncidentRemediateRequest(BaseModel):
+    confirm_password: str | None = None
+    dry_run: bool = True
+
+
+class DeploymentConfigRequest(BaseModel):
+    app_name: str
+    path: str
+    repo_url: str = ""
+    branch: str = "main"
+    runtime: str = "auto"
+    install_command: str = ""
+    build_command: str = ""
+    restart_command: str = ""
+    service_name: str = ""
+    port: int | None = None
+    confirm_password: str | None = None
+
+
+class DeploymentRunRequest(BaseModel):
+    app_id: int
+    confirm_password: str | None = None
+
+
+class ExposurePreviewRequest(BaseModel):
+    app_id: int
+    domain: str
+    port: int | None = None
+    ssl_mode: str = "letsencrypt"
+    open_firewall: bool = False
+    confirm_password: str | None = None
+
+
+class ExposureRemoveRequest(BaseModel):
+    app_id: int
+    confirm_password: str | None = None
+
+
+class IntegrationUpsertRequest(BaseModel):
+    name: str
+    kind: str
+    target_url: str
+    enabled: bool = True
+    events: list[str] = Field(default_factory=list)
+    headers: dict[str, str] = Field(default_factory=dict)
+    confirm_password: str | None = None
+
+
+class MemorySaveRequest(BaseModel):
+    key: str
+    scope: str = "server"
+    value: dict[str, Any] = Field(default_factory=dict)
+
+
+class CommandExplainRequest(BaseModel):
+    command: str
