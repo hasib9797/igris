@@ -541,6 +541,7 @@ def alerts(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_d
     return [
         {
             "id": item.id,
+            "alert_code": alert_service.format_alert_code(item.id),
             "level": item.level,
             "message": item.message,
             "source": item.source,

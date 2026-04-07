@@ -20,7 +20,7 @@ type ProcessItem = { pid: number; name: string; username: string; cpu_percent: n
 type FileItem = { path: string; type: "file" | "directory"; size: number; owner: string | null; group: string | null; permissions: string; modified_at: string | null };
 type FileReadResponse = { path: string; content: string; size: number; permissions: string };
 type FirewallStatusResponse = { status: string };
-type AlertItem = { id: number; level: string; message: string; source: string; resolved: boolean; created_at: string | null };
+type AlertItem = { id: number; alert_code: string; level: string; message: string; source: string; resolved: boolean; created_at: string | null };
 type ApplicationItem = { id: number; name: string; app_type: string; runtime: string; path: string; status: string; ports: number[]; service_name: string; process_name: string; public_domain: string; exposure_status: string; repo_url: string; branch: string; metadata: Record<string, unknown>; updated_at: string | null };
 type IncidentItem = { id: number; rule_key: string; severity: string; title: string; summary: string; resource_key: string; status: string; suggested_fix: string; auto_remediation_enabled: boolean; action_summary: string; created_at: string | null; updated_at: string | null; resolved_at: string | null };
 type AssistantHistoryItem = { id: number; prompt: string; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; executed_commands: Array<Record<string, unknown>>; status: string; dry_run: boolean; created_at: string | null };
@@ -1323,6 +1323,7 @@ function AlertsPage() {
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
+                  <Pill tone="neutral">{item.alert_code}</Pill>
                   <Pill tone={item.level === "critical" ? "danger" : item.level === "warning" ? "warning" : "success"}>{item.level}</Pill>
                   <Pill tone="neutral">{item.source}</Pill>
                   {item.resolved ? <Pill tone="success">resolved</Pill> : <Pill tone="warning">open</Pill>}

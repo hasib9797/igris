@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.app.config import get_config
 from backend.app.models import DeploymentRecord, IncidentRecord, ManagedApp
 from backend.app.services.command import run_command
+from backend.app.services.modules.services import list_failed_services
 
 
 def _incident_payload(rule_key: str, severity: str, title: str, summary: str, resource_key: str, suggested_fix: str, auto_remediation_enabled: bool = False) -> dict:
@@ -92,9 +93,8 @@ def scan_incidents(db: Session) -> list[dict]:
     if disk >= config.monitoring.disk_threshold_percent:
         findings.append(_incident_payload("high-disk", "critical" if disk >= 95 else "warning", "Disk pressure detected", f"Root disk usage is {disk:.0f}%.", "host:disk", "Purge logs, package caches, or old deployments before writes start failing."))
 
-    failed = run_command(["systemctl", "--failed", "--no-legend", "--plain"], timeout=10)
-    for line in [item.strip() for item in failed.stdout.splitlines() if item.strip()]:
-        service_name = line.split()[0]
+    for failed_service in list_failed_services(include_deleted=False):
+        service_name = failed_service.name
         findings.append(
             _incident_payload(
                 "failed-service",

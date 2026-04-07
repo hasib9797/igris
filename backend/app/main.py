@@ -21,6 +21,7 @@ from backend.app.config import get_config
 from backend.app.db.session import Base, get_engine, get_session_factory, init_database
 from backend.app.models import AdminUser
 from backend.app.services.automation import run_background_loops
+from backend.app.services.modules.alerts import initialize_alert_sessions
 from backend.app.utils.audit import log_audit
 
 
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def start_background_automation() -> None:
+        initialize_alert_sessions()
         app.state.background_task = asyncio.create_task(run_background_loops(app.state.shutdown_event))
 
     @app.on_event("shutdown")
