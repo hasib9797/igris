@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-
+from backend.app.security.bundled_gateway import bundled_gateway_secret, bundled_gateway_url
 
 def _default_config_path() -> Path:
     return Path(os.environ.get("IGRIS_CONFIG_PATH", "/etc/igris/config.yaml"))
@@ -60,6 +60,10 @@ class SecurityConfig:
     trusted_subnets: list[str] = field(default_factory=list)
     require_reauth_for_dangerous_actions: bool = True
     audit_log_enabled: bool = True
+    login_max_attempts: int = 5
+    login_lockout_minutes: int = 15
+    block_dangerous_terminal_commands: bool = True
+    security_headers_enabled: bool = True
 
 
 @dataclass
@@ -89,9 +93,14 @@ class UpdatesConfig:
 @dataclass
 class AssistantConfig:
     enabled: bool = True
-    provider: str = "local-heuristic"
+    provider: str = "ollama"
     dry_run_default: bool = True
     allow_execute: bool = True
+    gateway_url: str = field(default_factory=bundled_gateway_url)
+    gateway_shared_secret: str = field(default_factory=bundled_gateway_secret)
+    ollama_url: str = ""
+    ollama_model: str = ""
+    ollama_timeout_seconds: int = 45
 
 
 @dataclass
@@ -173,6 +182,15 @@ def load_config(path: str | Path | None = None) -> AppConfig:
 def save_config(config: AppConfig, path: str | Path | None = None) -> None:
     config_path = Path(path or config.config_path or _default_config_path())
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    assistant_payload = asdict(config.assistant)
+    if assistant_payload.get("gateway_url") == bundled_gateway_url():
+        assistant_payload.pop("gateway_url", None)
+    if assistant_payload.get("gateway_shared_secret") == bundled_gateway_secret():
+        assistant_payload.pop("gateway_shared_secret", None)
+    if not assistant_payload.get("ollama_url"):
+        assistant_payload.pop("ollama_url", None)
+    if not assistant_payload.get("ollama_model"):
+        assistant_payload.pop("ollama_model", None)
     payload = {
         "server": asdict(config.server),
         "auth": asdict(config.auth),
@@ -182,7 +200,7 @@ def save_config(config: AppConfig, path: str | Path | None = None) -> None:
         "email": asdict(config.email),
         "monitoring": asdict(config.monitoring),
         "updates": asdict(config.updates),
-        "assistant": asdict(config.assistant),
+        "assistant": assistant_payload,
         "incidents": asdict(config.incidents),
         "deploy": asdict(config.deploy),
     }

@@ -46,6 +46,11 @@ def assistant_context(_: AdminUser = Depends(get_current_user), db: Session = De
     return assistant_service.build_server_context(db)
 
 
+@router.get("/assistant/pulse")
+def assistant_pulse(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    return assistant_service.build_ai_pulse(db)
+
+
 @router.get("/assistant/history")
 def assistant_history(_: AdminUser = Depends(get_current_user), db: Session = Depends(get_db)) -> list[dict]:
     return assistant_service.list_history(db)

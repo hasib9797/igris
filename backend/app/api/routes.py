@@ -3,7 +3,7 @@
 import subprocess
 from collections.abc import Iterator
 
-from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -52,7 +52,8 @@ from backend.app.services.modules import services as systemd_service
 from backend.app.services.modules import tasks as task_service
 from backend.app.services.modules import users as user_service
 from backend.app.services.notifications import build_alert_html, send_email_notification
-from backend.app.services.overview import get_system_health, get_system_overview
+from backend.app.services.overview import get_security_summary, get_system_health, get_system_overview
+from backend.app.security.runtime import blocked_terminal_reason, clear_login_failures, client_ip_from_request, login_is_blocked, register_login_failure
 from backend.app.utils.audit import log_audit
 
 
@@ -65,13 +66,21 @@ def _dangerous(db: Session, actor: str, password: str | None, action: str, targe
 
 
 @router.post("/auth/login", response_model=UserResponse)
-def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)) -> UserResponse:
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)) -> UserResponse:
+    client_ip = client_ip_from_request(request)
+    config = get_config()
+    blocked, remaining = login_is_blocked(client_ip, config)
+    if blocked:
+        log_audit(db, actor=payload.username or "unknown", action="auth.login_blocked", details={"ip": client_ip, "retry_after_seconds": remaining})
+        raise HTTPException(status_code=429, detail=f"Too many failed login attempts. Try again in {remaining} seconds.")
     user = db.scalar(select(AdminUser).where(AdminUser.username == payload.username))
     if not user or not verify_password(payload.password, user.password_hash):
-        log_audit(db, actor=payload.username or "unknown", action="auth.login_failed")
+        failures = register_login_failure(client_ip, config)
+        log_audit(db, actor=payload.username or "unknown", action="auth.login_failed", details={"ip": client_ip, "failures": failures})
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    clear_login_failures(client_ip, config)
     set_session_cookie(response, user.username)
-    log_audit(db, actor=user.username, action="auth.login")
+    log_audit(db, actor=user.username, action="auth.login", details={"ip": client_ip})
     return UserResponse(username=user.username, must_reauth=user.must_reauth)
 
 
@@ -95,6 +104,11 @@ def system_overview(_: AdminUser = Depends(get_current_user)) -> dict:
 @router.get("/system/health")
 def system_health(_: AdminUser = Depends(get_current_user)) -> dict:
     return get_system_health()
+
+
+@router.get("/system/security-summary")
+def system_security_summary(_: AdminUser = Depends(get_current_user)) -> dict:
+    return get_security_summary()
 
 
 @router.get("/services")
@@ -477,12 +491,17 @@ def terminal_exec(
     user: AdminUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> TerminalExecResponse:
-    if not get_config().system.allow_terminal:
+    config = get_config()
+    if not config.system.allow_terminal:
         raise HTTPException(status_code=403, detail="Terminal module is disabled")
+    blocked_reason = blocked_terminal_reason(payload.command, config)
+    if blocked_reason:
+        log_audit(db, actor=user.username, action="terminal.exec.blocked", target=payload.command[:120], details={"reason": blocked_reason})
+        raise HTTPException(status_code=403, detail=blocked_reason)
     if payload.confirm_password:
         _dangerous(db, user.username, payload.confirm_password, "terminal.exec")
         set_reauth_cookie(response, user.username, "terminal.exec")
-    elif get_config().security.require_reauth_for_dangerous_actions and not decode_reauth_token(reauth_token, user.username, "terminal.exec"):
+    elif config.security.require_reauth_for_dangerous_actions and not decode_reauth_token(reauth_token, user.username, "terminal.exec"):
         raise HTTPException(status_code=401, detail="Console confirmation expired. Confirm your dashboard password again.")
     try:
         completed = subprocess.run(
@@ -594,6 +613,9 @@ def settings(_: AdminUser = Depends(get_current_user)) -> dict:
         "admin_email": config.auth.admin_email,
         "monitoring_enabled": config.monitoring.enabled,
         "auto_update_enabled": config.updates.auto_update,
+        "security_headers_enabled": config.security.security_headers_enabled,
+        "trusted_subnets_enabled": bool(config.security.trusted_subnets),
+        "terminal_guard_enabled": config.security.block_dangerous_terminal_commands,
     }
 
 

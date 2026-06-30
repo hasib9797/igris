@@ -16,6 +16,7 @@ coverage/
 backend/.ruff_cache/
 frontend/.vite/
 frontend/dist/
+frontend/*.tsbuildinfo
 packaging/debian/.debhelper/
 packaging/debian/debhelper-build-stamp
 packaging/debian/files
@@ -23,3 +24,4 @@ packaging/debian/*.substvars
 packaging/debian/*.debhelper
 backend/data/
 tmp/
+private/ollama-gateway/

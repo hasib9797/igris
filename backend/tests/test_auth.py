@@ -9,7 +9,16 @@ from backend.app.config import clear_config_cache
 from backend.app.security.passwords import hash_password
 
 
-def build_app(tmp_path, monkeypatch):
+def _merge_dict(target: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _merge_dict(target[key], value)
+        else:
+            target[key] = value
+    return target
+
+
+def build_app(tmp_path, monkeypatch, overrides: dict | None = None):
     config_path = tmp_path / "config.yaml"
     data_dir = tmp_path / "data"
     frontend_dist = tmp_path / "frontend-dist"
@@ -45,6 +54,8 @@ def build_app(tmp_path, monkeypatch):
         "audit_log_path": str(data_dir / "audit.log"),
         "database_url": f"sqlite:///{data_dir / 'database.db'}",
     }
+    if overrides:
+        _merge_dict(config, overrides)
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     monkeypatch.setenv("IGRIS_CONFIG_PATH", str(config_path))
     monkeypatch.setenv("IGRIS_DATA_DIR", str(data_dir))
@@ -102,3 +113,53 @@ def test_frontend_fallback_serves_index_and_assets(tmp_path, monkeypatch):
 
     traversal = client.get("/..%2F..%2Fsecrets.txt")
     assert traversal.status_code == 404
+
+
+def test_security_headers_are_applied(tmp_path, monkeypatch):
+    app = build_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    response = client.get("/")
+
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+
+
+def test_login_rate_limit_blocks_after_repeated_failures(tmp_path, monkeypatch):
+    app = build_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    for _ in range(5):
+        response = client.post("/api/auth/login", json={"username": "admin", "password": "wrong-pass"})
+        assert response.status_code == 401
+
+    blocked = client.post("/api/auth/login", json={"username": "admin", "password": "secret-pass"})
+    assert blocked.status_code == 429
+
+
+def test_terminal_blocks_dangerous_commands(tmp_path, monkeypatch):
+    app = build_app(tmp_path, monkeypatch, overrides={"system": {"allow_terminal": True}})
+    client = TestClient(app)
+
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "secret-pass"})
+    assert login.status_code == 200
+
+    blocked = client.post("/api/terminal/exec", json={"command": "reboot", "confirm_password": "secret-pass"})
+    assert blocked.status_code == 403
+    assert "Refusing host power control" in blocked.json()["detail"]
+
+
+def test_security_summary_endpoint_returns_hardening_state(tmp_path, monkeypatch):
+    app = build_app(tmp_path, monkeypatch)
+    client = TestClient(app)
+
+    login = client.post("/api/auth/login", json={"username": "admin", "password": "secret-pass"})
+    assert login.status_code == 200
+
+    summary = client.get("/api/system/security-summary")
+    assert summary.status_code == 200
+    payload = summary.json()
+    assert payload["reauth_required"] is True
+    assert payload["security_headers_enabled"] is True
+    assert payload["terminal_guard_enabled"] is True

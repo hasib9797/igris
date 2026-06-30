@@ -20,3 +20,15 @@ export type Overview = {
   ai_monitor_summary: string;
   ai_monitor_findings: string[];
 };
+
+export type SecuritySummary = {
+  trusted_subnets_enabled: boolean;
+  trusted_subnets: string[];
+  reauth_required: boolean;
+  login_max_attempts: number;
+  login_lockout_minutes: number;
+  terminal_guard_enabled: boolean;
+  security_headers_enabled: boolean;
+  session_timeout_minutes: number;
+  recent_audit: string[];
+};

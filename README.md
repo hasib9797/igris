@@ -2,7 +2,7 @@
 
 > AI-powered server command center for Ubuntu and Debian
 
-Igris is a self-hosted server manager built for developers who want a serious operational surface for Linux servers. It combines a web dashboard, audited command workflows, and an admin CLI so you can manage services, users, packages, firewall rules, files, processes, deployments, and alerts from one place.
+Igris is a self-hosted server manager built for developers who want a serious operational surface for Linux servers. It combines a web dashboard, audited command workflows, local AI assistance, and an admin CLI so you can manage services, users, packages, firewall rules, files, processes, deployments, and alerts from one place.
 
 <p align="center">
   <img src="public/igris.png" alt="Igris Dashboard" width="100%" />
@@ -22,7 +22,10 @@ Igris is a self-hosted server manager built for developers who want a serious op
 
 - Web dashboard for day-to-day server administration
 - CLI for setup, health checks, updates, logs, tasks, and quick ops
-- AI Root Assistant with server-aware suggestions, dry-run style guidance, and audited action history
+- Ollama-backed AI Root Assistant with server-aware suggestions, dry-run style guidance, and audited action history
+- AI Server Pulse for live operator summaries and next-step recommendations
+- AI command explanation with safer-command rewrites in the console
+- Security Center with live audit visibility and hardening posture
 - Smart application detection across service units, processes, working directories, ports, and project files
 - Incident detection for failed services, crash loops, reverse proxy errors, resource pressure, and unstable deployments
 - Git-based deployment workflows with deployment history and rollback-aware failure handling
@@ -38,6 +41,9 @@ Igris is a self-hosted server manager built for developers who want a serious op
 - Logs viewer for system and service logs
 - Alert center with monitor, update, and manual alerts
 - Audited console with command explanation and safer-command guidance
+- Login rate limiting and lockout protection
+- Trusted subnet access control for locked-down installations
+- Browser security headers and terminal destructive-command guard
 
 ---
 
@@ -125,6 +131,16 @@ Current dashboard modules include:
 - Alerts
 - Console
 
+Operational visibility additions:
+
+- Security Center
+- recent audit feed on the overview dashboard
+
+The current assistant runtime can use:
+
+- public AI gateway runtime
+- heuristic fallback when the local model is unavailable
+
 ---
 
 ## Tech Stack
@@ -134,6 +150,7 @@ Current dashboard modules include:
 | Backend | Python, FastAPI, SQLAlchemy, Pydantic |
 | Frontend | React 19, TypeScript, Vite, Tailwind CSS |
 | Data | SQLite |
+| Local AI | Gateway-backed Ollama |
 | Runtime Inspection | psutil |
 | Service Management | systemd |
 | Firewall | UFW |
@@ -151,6 +168,11 @@ Current dashboard modules include:
 - Audit log for sensitive operations
 - Confirmation before destructive or high-impact actions
 - Safe command policy for AI-executed actions
+- Login lockout after repeated failures
+- Optional trusted-subnet request filtering
+- CSP, frame blocking, and basic browser security headers
+- Destructive terminal guard for reboot, mkfs, root wipe, block-device overwrite, and fork-bomb patterns
+- Local-model fallback protection so dashboard AI remains usable if Ollama is unavailable
 - Config and runtime data stored locally on the host
 
 ---

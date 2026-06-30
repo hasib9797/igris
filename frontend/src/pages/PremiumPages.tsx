@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useMemo, useState } from "react";
+﻿import { FormEvent, ReactNode, useMemo, useState } from "react";
 import type { ButtonHTMLAttributes } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
@@ -10,7 +10,8 @@ import type { Overview } from "../lib/types";
 type ApplicationItem = { id: number; name: string; app_type: string; runtime: string; path: string; status: string; ports: number[]; service_name: string; process_name: string; public_domain: string; exposure_status: string; repo_url: string; branch: string; metadata: Record<string, unknown>; updated_at: string | null };
 type IncidentItem = { id: number; rule_key: string; severity: string; title: string; summary: string; resource_key: string; status: string; suggested_fix: string; auto_remediation_enabled: boolean; action_summary: string; created_at: string | null; updated_at: string | null; resolved_at: string | null };
 type AssistantHistoryItem = { id: number; prompt: string; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; executed_commands: Array<Record<string, unknown>>; status: string; dry_run: boolean; created_at: string | null };
-type AssistantResponse = { id: number; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; context: { explain: { summary: string; recommendations: string[] }; apps: ApplicationItem[]; incidents: IncidentItem[] } & Record<string, unknown> };
+type AssistantResponse = { id: number; summary: string; reasoning: string[]; suggestions: Array<{ label: string; reason: string; command: string; risk: string; requires_confirmation: boolean }>; context: { explain: { summary: string; recommendations: string[] }; apps: ApplicationItem[]; incidents: IncidentItem[] } & Record<string, unknown>; provider: string; model: string };
+type AssistantPulse = { heading: string; summary: string; actions: string[]; provider: string; model: string };
 type DeploymentItem = { id: number; app_name: string; repo_url: string; branch: string; revision: string; status: string; deployed_path: string; service_name: string; log_excerpt: string; created_at: string | null };
 type SystemMapResponse = { summary: string; nodes: Array<{ id: string; label: string; kind: string; status?: string; path?: string }>; edges: Array<{ from: string; to: string; label: string }> };
 type IntegrationItem = { id: number; name: string; kind: string; target_url: string; enabled: boolean; events: string[]; headers: Record<string, string>; updated_at: string | null };
@@ -103,12 +104,13 @@ function GuideBlock({ title, body, code }: { title: string; body: string[]; code
 
 export function AIAssistantPage() {
   const history = useQuery<AssistantHistoryItem[]>({ queryKey: ["assistant-history"], queryFn: () => api<AssistantHistoryItem[]>("/api/premium/assistant/history"), staleTime: 5000, refetchInterval: 10000 });
+  const pulse = useQuery<AssistantPulse>({ queryKey: ["assistant-pulse"], queryFn: () => api<AssistantPulse>("/api/premium/assistant/pulse"), staleTime: 12000, refetchInterval: 30000 });
   const [prompt, setPrompt] = useState("Why is my app not reachable?");
   const [result, setResult] = useState<AssistantResponse | null>(null);
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
   const [busyCommand, setBusyCommand] = useState("");
-  const quickPrompts = ["Why is my app not reachable?", "Check why nginx is failing", "Explain what is running on this server", "Help me deploy this Node app"];
+  const quickPrompts = ["Why is my app not reachable?", "Check why nginx is failing", "Explain what is running on this server", "Build a safe recovery plan for current incidents", "Recommend a hardening checklist for this server", "Help me deploy this Node app"];
 
   async function askAssistant(nextPrompt?: string) {
     const finalPrompt = (nextPrompt ?? prompt).trim();
@@ -144,9 +146,27 @@ export function AIAssistantPage() {
     <div className="space-y-6">
       <Panel title="AI Root Assistant" subtitle="Context-aware operational help with auditable safe actions">
         <SectionHeader title="Ask Igris" subtitle="Explain services, inspect failures, understand ports, and generate safe commands" refresh={() => history.refetch()} />
-        <ErrorBanner error={history.error} />
+        <ErrorBanner error={history.error || pulse.error} />
         {actionError ? <Notice message={actionError} tone="error" /> : null}
         {notice ? <Notice message={notice} /> : null}
+        <div className="mb-6 grid gap-4 xl:grid-cols-[1.05fr,0.95fr]">
+          <div className="rounded-[1.75rem] border border-ember-400/20 bg-[linear-gradient(135deg,rgba(139,61,255,0.18),rgba(52,16,97,0.08))] p-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone="success">{pulse.data?.provider ?? result?.provider ?? "assistant"}</Pill>
+              <Pill tone="neutral">{pulse.data?.model ?? result?.model ?? "model pending"}</Pill>
+            </div>
+            <h3 className="mt-4 font-display text-3xl text-white">{pulse.data?.heading ?? "Shadow Intel"}</h3>
+            <p className="mt-3 text-sm leading-7 text-slate-200">{pulse.data?.summary ?? "Generating a live AI server pulse from your applications, incidents, ports, and current operational state."}</p>
+          </div>
+          <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+            <h3 className="font-display text-2xl text-white">Recommended Next Moves</h3>
+            <div className="mt-4 space-y-3">
+              {(pulse.data?.actions ?? ["Review open incidents", "Validate exposed applications", "Check current deployment pressure"]).map((item) => (
+                <div key={item} className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-200">{item}</div>
+              ))}
+            </div>
+          </div>
+        </div>
         <div className="grid gap-6 xl:grid-cols-[1.15fr,0.85fr]">
           <div className="space-y-4">
             <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
@@ -158,7 +178,12 @@ export function AIAssistantPage() {
             </div>
             {result ? (
               <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
-                <h3 className="font-display text-2xl text-white">Current Answer</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-display text-2xl text-white">Current Answer</h3>
+                  <Pill tone="neutral">{result.provider}</Pill>
+                  <Pill tone="neutral">{result.model}</Pill>
+                  <Pill tone="success">{result.suggestions.length} action ideas</Pill>
+                </div>
                 <p className="mt-3 text-sm leading-7 text-slate-200">{result.summary}</p>
                 <div className="mt-5 space-y-2 text-sm text-slate-300">{result.reasoning.map((item) => <div key={item}>{item}</div>)}</div>
                 <div className="mt-5 space-y-3">
@@ -181,18 +206,18 @@ export function AIAssistantPage() {
               </div>
             ) : null}
           </div>
-          <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
-            <h3 className="font-display text-2xl text-white">Last Actions</h3>
-            <div className="mt-4 space-y-3">
+        <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
+          <h3 className="font-display text-2xl text-white">Last Actions</h3>
+          <div className="mt-4 space-y-3">
               {(history.data ?? []).slice(0, 6).map((item) => (
                 <div key={item.id} className="rounded-3xl border border-white/10 bg-black/20 p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <Pill tone={item.status === "executed" ? "success" : "warning"}>{item.status}</Pill>
                     <div className="text-xs text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : "unknown"}</div>
                   </div>
-                  <div className="mt-2 text-sm font-medium text-white">{item.prompt}</div>
-                  <p className="mt-2 text-sm text-slate-300">{item.summary}</p>
-                </div>
+                <div className="mt-2 text-sm font-medium text-white">{item.prompt}</div>
+                <p className="mt-2 text-sm text-slate-300">{item.summary}</p>
+              </div>
               ))}
             </div>
           </div>
@@ -390,7 +415,7 @@ export function DeploymentsPage() {
         <div className="space-y-4 rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
           <select value={selectedAppId} onChange={(event) => setSelectedAppId(Number(event.target.value))} className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-white">
             <option value={0}>Select an app</option>
-            {(apps.data ?? []).map((app) => <option key={app.id} value={app.id}>{app.name} • {app.path}</option>)}
+            {(apps.data ?? []).map((app) => <option key={app.id} value={app.id}>{app.name} â€¢ {app.path}</option>)}
           </select>
           <ActionButton onClick={runDeployment} disabled={!selectedAppId}>Run Deploy Pipeline</ActionButton>
           <div className="space-y-3">
@@ -510,7 +535,7 @@ export function SystemMapPage() {
         <div className="rounded-[1.75rem] border border-white/10 bg-white/5 p-5">
           <h3 className="font-display text-2xl text-white">Relationships</h3>
           <div className="mt-4 space-y-3">
-            {(systemMap.data?.edges ?? []).map((edge) => <div key={`${edge.from}-${edge.to}-${edge.label}`} className="rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-200"><div className="font-medium text-white">{edge.label}</div><div className="mt-2 text-slate-400">{edge.from} → {edge.to}</div></div>)}
+            {(systemMap.data?.edges ?? []).map((edge) => <div key={`${edge.from}-${edge.to}-${edge.label}`} className="rounded-3xl border border-white/10 bg-black/20 p-4 text-sm text-slate-200"><div className="font-medium text-white">{edge.label}</div><div className="mt-2 text-slate-400">{edge.from} -&gt; {edge.to}</div></div>)}
           </div>
         </div>
       </div>

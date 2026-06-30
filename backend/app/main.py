@@ -7,7 +7,7 @@ import signal
 import subprocess
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -23,6 +23,7 @@ from backend.app.models import AdminUser
 from backend.app.services.automation import run_background_loops
 from backend.app.services.modules.alerts import initialize_alert_sessions
 from backend.app.utils.audit import log_audit
+from backend.app.security.runtime import client_ip_from_request, ip_allowed
 
 
 def resolve_frontend_dist() -> Path:
@@ -58,6 +59,23 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(premium_router)
+
+    @app.middleware("http")
+    async def security_middleware(request: Request, call_next):
+        config = get_config()
+        client_ip = client_ip_from_request(request)
+        if not ip_allowed(client_ip, config.security.trusted_subnets):
+            return JSONResponse(status_code=403, content={"detail": "Access denied from this network"})
+        response = await call_next(request)
+        if config.security.security_headers_enabled:
+            response.headers["X-Frame-Options"] = "DENY"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+            response.headers["Content-Security-Policy"] = "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+            if request.url.path.startswith("/api/"):
+                response.headers["Cache-Control"] = "no-store"
+        return response
 
     @app.on_event("startup")
     async def start_background_automation() -> None:
@@ -140,6 +158,10 @@ def create_app() -> FastAPI:
         try:
             if not get_config().system.allow_terminal:
                 await safe_close(4403, "Terminal module is disabled")
+                return
+            client_ip = websocket.headers.get("x-forwarded-for", "").split(",")[0].strip() or (websocket.client.host if websocket.client else "unknown")
+            if not ip_allowed(client_ip, get_config().security.trusted_subnets):
+                await safe_close(4403, "Access denied from this network")
                 return
 
             cookie = SimpleCookie()

@@ -8,7 +8,7 @@
 
 html {
   min-height: 100%;
-  background: #090a0d;
+  background: #07040f;
 }
 
 body {
@@ -16,9 +16,10 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at top center, rgba(148, 38, 20, 0.18), transparent 28%),
-    radial-gradient(circle at left center, rgba(255, 94, 58, 0.08), transparent 22%),
-    #090a0d;
+    radial-gradient(circle at top center, rgba(145, 79, 255, 0.24), transparent 28%),
+    radial-gradient(circle at 18% 24%, rgba(90, 33, 191, 0.18), transparent 20%),
+    radial-gradient(circle at 88% 12%, rgba(180, 112, 255, 0.10), transparent 18%),
+    #07040f;
   color: #f8fafc;
   font-family: ui-sans-serif, system-ui, sans-serif;
 }
@@ -38,11 +39,11 @@ body {
 
 *::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: rgba(248, 66, 31, 0.45);
+  background: rgba(139, 61, 255, 0.5);
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: rgba(248, 66, 31, 0.65);
+  background: rgba(139, 61, 255, 0.72);
 }
 
 button,
@@ -53,6 +54,11 @@ textarea {
 
 #root {
   min-height: 100vh;
+}
+
+::selection {
+  background: rgba(139, 61, 255, 0.35);
+  color: #ffffff;
 }
 
 .animate-igris-rise {

@@ -28,6 +28,10 @@ security:
   trusted_subnets: []
   require_reauth_for_dangerous_actions: true
   audit_log_enabled: true
+  login_max_attempts: 5
+  login_lockout_minutes: 15
+  block_dangerous_terminal_commands: true
+  security_headers_enabled: true
 
 email:
   enabled: true
@@ -49,9 +53,11 @@ updates:
 
 assistant:
   enabled: true
-  provider: local-heuristic
+  provider: ollama
   dry_run_default: true
   allow_execute: true
+  gateway_url: https://igris-ai-puce.vercel.app
+  ollama_timeout_seconds: 45
 
 incidents:
   enabled: true

@@ -5,16 +5,16 @@ export default {
     extend: {
       colors: {
         ember: {
-          50: "#fff5f2",
-          100: "#ffe6dc",
-          200: "#ffc7af",
-          300: "#ff9e77",
-          400: "#ff6b47",
-          500: "#f8421f",
-          600: "#d62b0e",
-          700: "#a91e0c",
-          800: "#7f1a12",
-          900: "#45110d"
+          50: "#f6f1ff",
+          100: "#ede2ff",
+          200: "#d9c0ff",
+          300: "#bf91ff",
+          400: "#a362ff",
+          500: "#8b3dff",
+          600: "#7524f3",
+          700: "#5f18c7",
+          800: "#46158d",
+          900: "#2b1056"
         }
       },
       fontFamily: {
@@ -22,10 +22,10 @@ export default {
         sans: ["ui-sans-serif", "system-ui", "sans-serif"]
       },
       boxShadow: {
-        panel: "0 24px 80px rgba(0,0,0,0.45)"
+        panel: "0 28px 90px rgba(5, 2, 17, 0.58)"
       },
       backgroundImage: {
-        "igris-glow": "radial-gradient(circle at top, rgba(248,66,31,0.24), transparent 35%), linear-gradient(135deg, #0f1115 0%, #171a20 45%, #0a0b0d 100%)"
+        "igris-glow": "radial-gradient(circle at top, rgba(139,61,255,0.30), transparent 34%), radial-gradient(circle at 18% 18%, rgba(108,40,217,0.18), transparent 26%), linear-gradient(135deg, #090611 0%, #120b22 46%, #05040a 100%)"
       }
     },
   },

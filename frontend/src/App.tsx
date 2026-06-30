@@ -6,7 +6,7 @@ import { api } from "./api/client";
 import { MetricCard } from "./components/MetricCard";
 import { Panel } from "./components/Panel";
 import { useSession } from "./hooks/useSession";
-import type { Overview } from "./lib/types";
+import type { Overview, SecuritySummary } from "./lib/types";
 import { LoginPage } from "./pages/LoginPage";
 import { AIAssistantPage, ApplicationsPage, DeploymentsPage, ExplainPage, GuidePage, IncidentsPage, IntegrationsPage, SystemMapPage } from "./pages/PremiumPages";
 
@@ -41,6 +41,9 @@ type SettingsState = {
   admin_email: string;
   monitoring_enabled: boolean;
   auto_update_enabled: boolean;
+  security_headers_enabled?: boolean;
+  trusted_subnets_enabled?: boolean;
+  terminal_guard_enabled?: boolean;
 };
 
 const NAV_ITEMS: Array<{ key: ModuleKey; label: string; icon: typeof Activity }> = [
@@ -188,13 +191,19 @@ function OverviewPage() {
     refetchInterval: 5000,
     staleTime: 2000,
   });
+  const security = useQuery<SecuritySummary>({
+    queryKey: ["security-summary"],
+    queryFn: () => api<SecuritySummary>("/api/system/security-summary"),
+    refetchInterval: 15000,
+    staleTime: 8000,
+  });
   const data = overview.data;
 
   return (
     <div className="space-y-6">
       <Panel title="Overview" subtitle="Live host state from the running Ubuntu node">
         <SectionHeader title="System State" subtitle="Real-time health and identity" refresh={() => overview.refetch()} />
-        <ErrorBanner error={overview.error} />
+        <ErrorBanner error={overview.error || security.error} />
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="CPU Load" value={data ? formatPercent(data.cpu_usage_percent) : "--"} />
           <MetricCard label="Memory" value={data ? formatPercent(data.ram_usage_percent) : "--"} accent="from-amber-500/25 to-transparent" />
@@ -242,6 +251,29 @@ function OverviewPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <Panel title="Failed Services" subtitle="Current systemd failures"><pre className="max-h-[20rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs text-slate-300">{JSON.stringify(data?.failed_services ?? [], null, 2)}</pre></Panel>
         <Panel title="Top Processes" subtitle="Highest CPU consumers"><pre className="max-h-[20rem] overflow-auto rounded-3xl border border-white/8 bg-slate-950/80 p-4 text-xs text-slate-300">{JSON.stringify(data?.top_processes ?? [], null, 2)}</pre></Panel>
+      </div>
+      <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
+        <Panel title="Security Center" subtitle="Live protection posture for access, sessions, console safety, and browser hardening">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard label="Trusted Scope" value={security.data?.trusted_subnets_enabled ? "Scoped" : "Open"} accent="from-emerald-500/25 to-transparent" />
+            <MetricCard label="Login Lockout" value={security.data ? `${security.data.login_max_attempts}/${security.data.login_lockout_minutes}m` : "--"} accent="from-amber-500/25 to-transparent" />
+            <MetricCard label="Session TTL" value={security.data ? `${security.data.session_timeout_minutes}m` : "--"} accent="from-sky-500/25 to-transparent" />
+            <MetricCard label="Terminal Guard" value={security.data?.terminal_guard_enabled ? "Armed" : "Off"} accent="from-rose-500/25 to-transparent" />
+          </div>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Pill tone={security.data?.reauth_required ? "success" : "warning"}>{security.data?.reauth_required ? "Re-auth enforced" : "Re-auth relaxed"}</Pill>
+            <Pill tone={security.data?.security_headers_enabled ? "success" : "warning"}>{security.data?.security_headers_enabled ? "Security headers active" : "Headers inactive"}</Pill>
+            <Pill tone={security.data?.trusted_subnets_enabled ? "success" : "warning"}>{security.data?.trusted_subnets_enabled ? `${security.data.trusted_subnets.length} trusted subnet(s)` : "No subnet restriction"}</Pill>
+          </div>
+        </Panel>
+        <Panel title="Recent Audit" subtitle="Latest audit trail lines written by the live Igris service">
+          <div className="space-y-3">
+            {(security.data?.recent_audit ?? []).map((entry) => (
+              <pre key={entry} className="overflow-auto rounded-2xl border border-white/10 bg-slate-950/80 p-3 text-xs leading-6 text-slate-300">{entry}</pre>
+            ))}
+            {!security.data?.recent_audit?.length ? <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">No audit entries found yet.</div> : null}
+          </div>
+        </Panel>
       </div>
     </div>
   );
@@ -1472,7 +1504,7 @@ function Dashboard() {
   const [current, setCurrent] = useState<ModuleKey>("overview");
   const settings = useQuery<SettingsState>({ queryKey: ["settings"], queryFn: () => api<SettingsState>("/api/settings"), staleTime: 60000 });
   const overview = useQuery<Overview>({ queryKey: ["header-overview"], queryFn: () => api<Overview>("/api/system/overview"), refetchInterval: 5000, staleTime: 2000 });
-  const topStatus = useMemo(() => !overview.data ? "Syncing node state" : `${overview.data.hostname} · ${overview.data.os_version}`, [overview.data]);
+  const topStatus = useMemo(() => !overview.data ? "Syncing node state" : `${overview.data.hostname} | ${overview.data.os_version}`, [overview.data]);
 
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });

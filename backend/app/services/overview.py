@@ -35,6 +35,14 @@ def _os_release() -> str:
     return data.get("PRETTY_NAME", platform.platform())
 
 
+def _recent_audit_entries(limit: int = 6) -> list[str]:
+    audit_path = Path(get_config().audit_log_path)
+    if not audit_path.exists():
+        return []
+    lines = [line.strip() for line in audit_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return lines[-limit:]
+
+
 def get_system_overview() -> dict:
     config = get_config()
     vm = psutil.virtual_memory()
@@ -94,5 +102,20 @@ def get_system_health() -> dict:
         "memory_percent": psutil.virtual_memory().percent,
         "disk_percent": psutil.disk_usage("/").percent,
         "load_average": load_avg,
+    }
+
+
+def get_security_summary() -> dict:
+    config = get_config()
+    return {
+        "trusted_subnets_enabled": bool(config.security.trusted_subnets),
+        "trusted_subnets": config.security.trusted_subnets,
+        "reauth_required": config.security.require_reauth_for_dangerous_actions,
+        "login_max_attempts": config.security.login_max_attempts,
+        "login_lockout_minutes": config.security.login_lockout_minutes,
+        "terminal_guard_enabled": config.security.block_dangerous_terminal_commands,
+        "security_headers_enabled": config.security.security_headers_enabled,
+        "session_timeout_minutes": config.auth.session_timeout_minutes,
+        "recent_audit": _recent_audit_entries(),
     }
 
