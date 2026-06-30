@@ -128,8 +128,11 @@ export function AIAssistantPage() {
   }
 
   async function runSuggestion(command: string, requiresConfirmation: boolean) {
-    const confirmPassword = requiresConfirmation ? askForConfirmation() : undefined;
-    if (requiresConfirmation && !confirmPassword) return;
+    const confirmPassword = askForConfirmation();
+    if (!confirmPassword) {
+      setActionError(requiresConfirmation ? "Password confirmation is required to run this AI action." : "Password confirmation is required before Igris can run AI actions.");
+      return;
+    }
     setBusyCommand(command);
     try {
       const response = await api<{ returncode?: number }>("/api/premium/assistant/execute", { method: "POST", body: JSON.stringify({ prompt, command, confirm_password: confirmPassword, dry_run: false }) });
